@@ -359,19 +359,25 @@ def prompt_manage_agent(
 
 
 def pick_agent_for_management(agents: list[dict]) -> Optional[dict]:
-    """Secondary picker — used after `- Manage` is chosen from the main picker."""
+    """Secondary picker — used after `- Manage` is chosen from the main picker.
+
+    Uses agent names as choice values (rather than dicts) to sidestep a
+    questionary edge case where filtered-search can return the typed
+    string instead of the choice value. We look up the dict by name on
+    return, and bail safely if the lookup fails.
+    """
     if not agents:
         console.print("[soft]No agents to manage.[/soft]")
         return None
 
     name_width = max(len(a["name"]) for a in agents)
     choices = [
-        questionary.Choice(title=_format_agent_row(a, name_width), value=a)
+        questionary.Choice(title=_format_agent_row(a, name_width), value=a["name"])
         for a in agents
     ]
     choices.append(questionary.Choice(title="  Cancel", value=None))
 
-    return questionary.select(
+    selected = questionary.select(
         "Manage which agent?",
         choices=choices,
         style=_picker_style,
@@ -379,6 +385,10 @@ def pick_agent_for_management(agents: list[dict]) -> Optional[dict]:
         use_search_filter=True,
         use_jk_keys=False,
     ).ask()
+
+    if not selected or not isinstance(selected, str):
+        return None
+    return next((a for a in agents if a["name"] == selected), None)
 
 
 def show_help(interactive: bool = True) -> None:

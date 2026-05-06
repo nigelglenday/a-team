@@ -370,7 +370,7 @@ def _create_agent_flow(default_path: str | None = None) -> str | None:
 
 def _manage_flow(agents: list[dict]) -> str | None:
     target = ui.pick_agent_for_management(agents)
-    if not target:
+    if not target or not isinstance(target, dict):
         return None
 
     result = ui.prompt_manage_agent(
