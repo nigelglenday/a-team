@@ -1,24 +1,27 @@
 # a-team
 
-Parallel Claude Code session manager for Ghostty.
+![License](https://img.shields.io/badge/license-MIT-yellow) ![Python](https://img.shields.io/badge/python-3.11%2B-blue) ![Platform](https://img.shields.io/badge/platform-macOS-black) ![Ghostty](https://img.shields.io/badge/terminal-Ghostty-orange)
 
 > *I love it when a plan comes together.*
 
-`a-team` manages your parallel [Claude Code](https://claude.com/claude-code) sessions — each running in a [Ghostty](https://ghostty.org) window, in a different folder, with its own `CLAUDE.md`. After a Mac reboot, one command brings them all back.
+Manage parallel Claude Code sessions in Ghostty. One command brings them all back after a reboot.
 
-## What it does
+```
+ █████╗       ████████╗███████╗ █████╗ ███╗   ███╗
+██╔══██╗      ╚══██╔══╝██╔════╝██╔══██╗████╗ ████║
+███████║█████╗   ██║   █████╗  ███████║██╔████╔██║
+██╔══██║╚════╝   ██║   ██╔══╝  ██╔══██║██║╚██╔╝██║
+██║  ██║         ██║   ███████╗██║  ██║██║ ╚═╝ ██║
+╚═╝  ╚═╝         ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝
+```
 
-- **Pick an agent** to jump to — fuzzy-search arrow-key picker over your registered Claude Code workspaces
-- **Restore everything** — `a-team all` opens a Ghostty window for every persistent agent, with `claude --continue` already running
-- **Manage agents** — create, rename, remove, all from the picker (no TOML editing required)
-- **Direct open** — `a-team EA` skips the picker and opens that one
-- **A splash because plans deserve splashes**
+## What it is
 
-An "agent" is just `(name, folder)`. The tool spawns a new Ghostty window, sets the title, `cd`s into the folder, and runs `claude --continue`.
-
-## Install
+An "agent" is a Claude Code session in a folder with a name. `a-team` keeps a registry, lets you pick one to open, and restores all of them at once.
 
 Requires macOS, Ghostty, Claude Code, and Python 3.11+.
+
+## Install
 
 ```bash
 brew install pipx
@@ -26,7 +29,7 @@ pipx ensurepath
 pipx install git+https://github.com/nigelglenday/a-team.git
 ```
 
-Or for local development:
+For local dev:
 
 ```bash
 git clone https://github.com/nigelglenday/a-team.git
@@ -34,58 +37,57 @@ cd a-team
 pipx install -e .
 ```
 
-## Usage
+## Use
 
 ```
-a-team                          splash + arrow-key picker over all agents
-a-team <name>                   open that agent directly (skip the picker)
-a-team all                      restore every persistent agent (post-reboot)
-a-team new <name> <path>        register an agent
-a-team new <name> <path> --ephemeral   register a one-off agent (excluded from `all`)
-a-team rm <name>                unregister (does NOT delete the folder)
+a-team                          splash + arrow-key picker (type to filter)
+a-team <name>                   open that agent directly
+a-team all                      restore every persistent agent
+a-team new <name> [<path>]      register an agent (path falls back to clipboard)
+a-team rm <name>                unregister (folder is kept)
 a-team ls                       plain list, pipe-friendly
-a-team --help
 ```
 
-The picker also surfaces `+ Create new agent` and `- Manage` entries — most management can happen there without ever opening a config file.
+`a-team new EA` with no path uses your macOS clipboard. In Finder, Shift+Right-click a folder → Copy as Pathname, then run the command.
+
+The picker also surfaces `+ Create new agent` and `- Manage` so you rarely touch a config file.
 
 ## Config
 
-Lives at `~/.config/a-team/agents.toml`. Hand-editable. Bulk import is faster than running `a-team new` ten times:
+`~/.config/a-team/agents.toml`. Hand-edit for bulk import.
 
 ```toml
 [[agent]]
 name = "EA"
 path = "/Users/you/Documents/Tasks"
 kind = "persistent"
+category = "Personal"
 
 [[agent]]
 name = "Sidekick"
-path = "/Users/you/Documents/code/atlas"
+path = "/Users/you/code/atlas"
 kind = "persistent"
+category = "Atlas"
 
 [[agent]]
 name = "fii-research"
-path = "/Users/you/Documents/Masterworks/mena"
+path = "/Users/you/research/fii"
 kind = "ephemeral"
 ```
 
-`kind = "persistent"` agents are restored by `a-team all`. `kind = "ephemeral"` ones are not.
+`kind = "persistent"` agents are restored by `a-team all`. `kind = "ephemeral"` are not.
 
-## How it works
+`category` groups agents in the picker. Order in the file = order in the picker.
 
-`a-team` uses macOS AppleScript to drive Ghostty (Ghostty's `+new-window` CLI is unsupported on macOS). Each spawn:
+## How it spawns windows
 
-1. Activates Ghostty
-2. Clicks the "New Window" menu item via System Events
-3. Keystrokes `printf '\e]0;<name>\a' && cd <path> && claude --continue`
-4. Presses Return
+Ghostty has no `+new-window` CLI on macOS, so `a-team` drives the GUI via AppleScript. Each spawn activates Ghostty, clicks New Window, then keystrokes:
 
-The `printf` sets the window title via the OSC-0 escape; the `cd` puts you in the right folder; `claude --continue` resumes the most recent session for that folder.
+```
+printf '\e]0;<name>\a' && cd <path> && claude --continue
+```
 
-## Why "a-team"
-
-You have a team of agents. Each has a name. They scatter to do their work. After the chaos, you want them all back. *I love it when a plan comes together.*
+Title via OSC-0, then `cd`, then resume.
 
 ## License
 
