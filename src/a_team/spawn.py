@@ -29,7 +29,7 @@ _BASH_COMMAND = (
     r"( while :; do printf '\\e]0;__NAME__\\a\\e]1;__NAME__\\a\\e]2;__NAME__\\a'; sleep 1; done ) & "
     r"TPID=$!; "
     r'trap \"kill $TPID 2>/dev/null\" EXIT INT TERM HUP; '
-    r"cd '__PATH__' && claude --continue; "
+    r"cd '__PATH__' && { claude --continue || claude; }; "
     r"}"
 )
 
