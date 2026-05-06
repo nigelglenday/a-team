@@ -378,8 +378,16 @@ def pick_agent_for_management(agents: list[dict]) -> Optional[dict]:
     ).ask()
 
 
-def show_help() -> None:
-    """Render a styled help panel covering CLI surface, keys, and config."""
+def show_help(interactive: bool = True) -> None:
+    """Render a styled help panel covering CLI surface, keys, and config.
+
+    When `interactive` (the default), waits for Enter and then clears
+    the screen so the caller can re-render its menu fresh. When called
+    from `a-team help` on the terminal, set interactive=False so output
+    behaves like a normal command (no prompt, no clear).
+    """
+    console.clear() if interactive else None
+
     console.print()
     console.print("[ateam]A-TEAM HELP[/ateam]")
     console.print(f"[border]{'━' * 40}[/border]")
@@ -415,6 +423,14 @@ def show_help() -> None:
 
     console.print("[soft]https://github.com/nigelglenday/a-team[/soft]")
     console.print()
+
+    if interactive:
+        console.print("[nav]Press Enter to return to the menu...[/nav]")
+        try:
+            input()
+        except (EOFError, KeyboardInterrupt):
+            pass
+        console.clear()
 
 
 def info(msg: str) -> None:

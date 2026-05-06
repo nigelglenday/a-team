@@ -226,7 +226,7 @@ def rm_cmd(name: str) -> None:
 @cli.command("help")
 def help_cmd() -> None:
     """Show the styled help panel (same as the picker's `? Help` entry)."""
-    ui.show_help()
+    ui.show_help(interactive=False)
 
 
 @cli.command("ls")
@@ -294,6 +294,7 @@ def run_picker(no_splash: bool = False) -> None:
 
         if selection == ui.ACTION_HELP:
             ui.show_help()
+            splash_shown = False  # screen was cleared; re-show splash
             continue
 
         # User picked an actual agent — open it, then return to the picker.
