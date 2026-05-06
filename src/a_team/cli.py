@@ -171,38 +171,49 @@ def ls_cmd() -> None:
 
 
 def run_picker(no_splash: bool = False) -> None:
-    """Show the splash + main picker; route based on the user's selection."""
-    agents = config.load_agents()
-    cwd = os.getcwd()
-    cwd_unregistered = bool(agents) and not config.is_path_registered(cwd)
+    """Show the splash + main picker; loop until the user cancels.
 
-    if not no_splash:
-        ui.print_splash(len(agents))
+    Acts as a home menu: every sub-flow (create / manage / open) returns
+    here, so the user can pick multiple agents in one session.
+    """
+    splash_shown = False
 
-    if not agents:
-        ui.info("No agents yet. Let's create your first one.")
-        _create_agent_flow(default_path=cwd)
-        return
+    while True:
+        agents = config.load_agents()
+        cwd = os.getcwd()
+        cwd_unregistered = bool(agents) and not config.is_path_registered(cwd)
 
-    selection = ui.pick_agent(agents, cwd_unregistered=cwd_unregistered)
+        if not no_splash and not splash_shown:
+            ui.print_splash(len(agents))
+            splash_shown = True
 
-    if selection is None or selection == ui.ACTION_CANCEL:
-        return
+        if not agents:
+            ui.info("No agents yet. Let's create your first one.")
+            _create_agent_flow(default_path=cwd)
+            # If they still didn't add one, exit; otherwise loop and show picker.
+            if not config.load_agents():
+                return
+            continue
 
-    if selection == ui.ACTION_CREATE:
-        _create_agent_flow()
-        return
+        selection = ui.pick_agent(agents, cwd_unregistered=cwd_unregistered)
 
-    if selection == ui.ACTION_REGISTER_CWD:
-        _create_agent_flow(default_path=cwd)
-        return
+        if selection is None or selection == ui.ACTION_CANCEL:
+            return
 
-    if selection == ui.ACTION_MANAGE:
-        _manage_flow(agents)
-        return
+        if selection == ui.ACTION_CREATE:
+            _create_agent_flow()
+            continue
 
-    # User picked an actual agent — open it.
-    spawn.open_agent(selection["name"], selection["path"])
+        if selection == ui.ACTION_REGISTER_CWD:
+            _create_agent_flow(default_path=cwd)
+            continue
+
+        if selection == ui.ACTION_MANAGE:
+            _manage_flow(agents)
+            continue
+
+        # User picked an actual agent — open it, then return to the picker.
+        spawn.open_agent(selection["name"], selection["path"])
 
 
 def _create_agent_flow(default_path: str | None = None) -> None:
