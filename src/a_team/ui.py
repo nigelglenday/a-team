@@ -27,6 +27,7 @@ console = Console(theme=_theme)
 ACTION_CREATE = {"_action": "create"}
 ACTION_MANAGE = {"_action": "manage"}
 ACTION_REGISTER_CWD = {"_action": "register_cwd"}
+ACTION_HELP = {"_action": "help"}
 ACTION_CANCEL = {"_action": "cancel"}
 
 # Questionary style shared across all pickers.
@@ -156,6 +157,7 @@ def pick_agent(agents: list[dict], cwd_unregistered: bool = False) -> Optional[d
                 title="  - Manage (rename / remove / edit path)", value=ACTION_MANAGE
             )
         )
+    choices.append(questionary.Choice(title="  ? Help", value=ACTION_HELP))
     choices.append(questionary.Choice(title="  Quit", value=ACTION_CANCEL))
 
     result = questionary.select(
@@ -374,6 +376,45 @@ def pick_agent_for_management(agents: list[dict]) -> Optional[dict]:
         use_search_filter=True,
         use_jk_keys=False,
     ).ask()
+
+
+def show_help() -> None:
+    """Render a styled help panel covering CLI surface, keys, and config."""
+    console.print()
+    console.print("[ateam]A-TEAM HELP[/ateam]")
+    console.print(f"[border]{'━' * 40}[/border]")
+    console.print()
+
+    console.print("[nav]Commands[/nav]")
+    console.print("  [nav]a-team[/nav]                          splash + picker (this menu)")
+    console.print("  [nav]a-team <name>[/nav]                   open that agent directly")
+    console.print("  [nav]a-team all[/nav]                      restore every persistent agent")
+    console.print("  [nav]a-team new <name> [<path>][/nav]      register agent")
+    console.print("  [nav]a-team rm <name>[/nav]                unregister (folder kept)")
+    console.print("  [nav]a-team ls[/nav]                       plain list (pipe-friendly)")
+    console.print("  [nav]a-team config show[/nav]              show settings")
+    console.print("  [nav]a-team config default-parent <p>[/nav] set scaffold parent")
+    console.print()
+
+    console.print("[nav]Picker keys[/nav]")
+    console.print("  [nav]↑ / ↓[/nav]                           navigate")
+    console.print("  [nav]type[/nav]                            fuzzy filter")
+    console.print("  [nav]Enter[/nav]                           select")
+    console.print("  [nav]Esc / Ctrl-C[/nav]                    cancel / back")
+    console.print()
+
+    console.print("[nav]Path resolution for `new`[/nav]")
+    console.print("  [soft]1.[/soft] explicit path argument")
+    console.print("  [soft]2.[/soft] macOS clipboard (Finder: Shift+Right-click → Copy as Pathname)")
+    console.print("  [soft]3.[/soft] scaffold under [nav]default_parent[/nav]/<name>/")
+    console.print()
+
+    console.print("[nav]Files[/nav]")
+    console.print("  [soft]~/.config/a-team/agents.toml[/soft]   registry + settings")
+    console.print()
+
+    console.print("[soft]https://github.com/nigelglenday/a-team[/soft]")
+    console.print()
 
 
 def info(msg: str) -> None:

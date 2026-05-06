@@ -223,6 +223,12 @@ def rm_cmd(name: str) -> None:
         sys.exit(1)
 
 
+@cli.command("help")
+def help_cmd() -> None:
+    """Show the styled help panel (same as the picker's `? Help` entry)."""
+    ui.show_help()
+
+
 @cli.command("ls")
 def ls_cmd() -> None:
     """List registered agents in plain text (pipe-friendly).
@@ -284,6 +290,10 @@ def run_picker(no_splash: bool = False) -> None:
 
         if selection == ui.ACTION_MANAGE:
             _manage_flow(agents)
+            continue
+
+        if selection == ui.ACTION_HELP:
+            ui.show_help()
             continue
 
         # User picked an actual agent — open it, then return to the picker.
