@@ -257,22 +257,32 @@ def run_picker(no_splash: bool = False) -> None:
     here, so the user can pick multiple agents in one session.
     """
     splash_shown = False
+    last_action: str | None = None
 
     while True:
         agents = config.load_agents()
         cwd = os.getcwd()
-        cwd_unregistered = bool(agents) and not config.is_path_registered(cwd)
+        is_home = cwd == str(Path.home())
+        cwd_unregistered = (
+            bool(agents) and not config.is_path_registered(cwd) and not is_home
+        )
 
         if not no_splash and not splash_shown:
             ui.print_splash(len(agents))
             splash_shown = True
 
+        if last_action:
+            ui.console.print(f"  [accent]✓[/accent] [nav]{last_action}[/nav]\n")
+            last_action = None
+
         if not agents:
             ui.info("No agents yet. Let's create your first one.")
-            _create_agent_flow(default_path=cwd)
-            # If they still didn't add one, exit; otherwise loop and show picker.
+            msg = _create_agent_flow(default_path=cwd)
             if not config.load_agents():
                 return
+            ui.console.clear()
+            splash_shown = False
+            last_action = msg
             continue
 
         selection = ui.pick_agent(agents, cwd_unregistered=cwd_unregistered)
@@ -281,15 +291,24 @@ def run_picker(no_splash: bool = False) -> None:
             return
 
         if selection == ui.ACTION_CREATE:
-            _create_agent_flow()
+            msg = _create_agent_flow()
+            ui.console.clear()
+            splash_shown = False
+            last_action = msg
             continue
 
         if selection == ui.ACTION_REGISTER_CWD:
-            _create_agent_flow(default_path=cwd)
+            msg = _create_agent_flow(default_path=cwd)
+            ui.console.clear()
+            splash_shown = False
+            last_action = msg
             continue
 
         if selection == ui.ACTION_MANAGE:
-            _manage_flow(agents)
+            msg = _manage_flow(agents)
+            ui.console.clear()
+            splash_shown = False
+            last_action = msg
             continue
 
         if selection == ui.ACTION_HELP:
@@ -299,9 +318,10 @@ def run_picker(no_splash: bool = False) -> None:
 
         # User picked an actual agent — open it, then return to the picker.
         spawn.open_agent(selection["name"], selection["path"])
+        last_action = f"Opened {selection['name']}"
 
 
-def _create_agent_flow(default_path: str | None = None) -> None:
+def _create_agent_flow(default_path: str | None = None) -> str | None:
     parent = config.get_default_parent()
     new = ui.prompt_new_agent(
         default_path=default_path,
@@ -309,7 +329,7 @@ def _create_agent_flow(default_path: str | None = None) -> None:
         default_parent=str(parent) if parent else None,
     )
     if not new:
-        return
+        return None
 
     # Scaffold the folder if it doesn't exist but the parent does.
     p = Path(new["path"]).expanduser()
@@ -317,13 +337,12 @@ def _create_agent_flow(default_path: str | None = None) -> None:
         if p.parent.is_dir():
             try:
                 p.mkdir(parents=False, exist_ok=False)
-                ui.info(f"Created folder: {p}")
             except OSError as e:
                 ui.error(f"could not create {p}: {e}")
-                return
+                return None
         else:
             ui.error(f"path does not exist and parent is missing: {p}")
-            return
+            return None
 
     try:
         agent = config.add_agent(
@@ -334,10 +353,10 @@ def _create_agent_flow(default_path: str | None = None) -> None:
         )
     except ValueError as e:
         ui.error(str(e))
-        return
+        return None
 
-    cat = f", {agent['category']}" if agent.get("category") else ""
-    ui.info(f"Added agent '{agent['name']}' ({agent['kind']}{cat}).")
+    cat = f" ({agent['category']})" if agent.get("category") else ""
+    return f"Added '{agent['name']}'{cat}"
 
     # Offer to open it right away.
     open_now = questionary.confirm(
@@ -349,33 +368,35 @@ def _create_agent_flow(default_path: str | None = None) -> None:
         spawn.open_agent(agent["name"], agent["path"])
 
 
-def _manage_flow(agents: list[dict]) -> None:
+def _manage_flow(agents: list[dict]) -> str | None:
     target = ui.pick_agent_for_management(agents)
     if not target:
-        return
+        return None
 
     result = ui.prompt_manage_agent(
         target, existing_categories=config.list_categories()
     )
     if not result:
-        return
+        return None
 
     try:
         if result["action"] == "rename":
             config.update_agent(target["name"], new_name=result["new_name"])
-            ui.info(f"Renamed '{target['name']}' → '{result['new_name']}'.")
-        elif result["action"] == "edit_path":
+            return f"Renamed '{target['name']}' to '{result['new_name']}'"
+        if result["action"] == "edit_path":
             config.update_agent(target["name"], new_path=result["new_path"])
-            ui.info(f"Updated path for '{target['name']}'.")
-        elif result["action"] == "edit_category":
+            return f"Updated path for '{target['name']}'"
+        if result["action"] == "edit_category":
             config.update_agent(target["name"], new_category=result["new_category"])
             label = result["new_category"] or "(none)"
-            ui.info(f"Set category of '{target['name']}' to {label}.")
-        elif result["action"] == "remove":
+            return f"Set category of '{target['name']}' to {label}"
+        if result["action"] == "remove":
             config.remove_agent(target["name"])
-            ui.info(f"Removed agent '{target['name']}' (folder kept).")
+            return f"Removed '{target['name']}' (folder kept)"
     except ValueError as e:
         ui.error(str(e))
+        return None
+    return None
 
 
 def main() -> None:

@@ -127,10 +127,13 @@ def pick_agent(agents: list[dict], cwd_unregistered: bool = False) -> Optional[d
 
     if cwd_unregistered:
         import os
+        from pathlib import Path
 
+        cwd = os.getcwd()
+        short = _short_path(cwd)
         choices.append(
             questionary.Choice(
-                title=f"  + Register $PWD as agent  ({os.getcwd()})",
+                title=f"  + Register current folder as agent  ({short})",
                 value=ACTION_REGISTER_CWD,
             )
         )
