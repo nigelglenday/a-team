@@ -156,7 +156,7 @@ def pick_agent(agents: list[dict], cwd_unregistered: bool = False) -> Optional[d
                 title="  - Manage (rename / remove / edit path)", value=ACTION_MANAGE
             )
         )
-    choices.append(questionary.Choice(title="  Cancel", value=ACTION_CANCEL))
+    choices.append(questionary.Choice(title="  Quit", value=ACTION_CANCEL))
 
     result = questionary.select(
         "Pick an agent",
