@@ -1,0 +1,28 @@
+# Example a-team agent registry.
+# Save your real one to ~/.config/a-team/agents.toml.
+
+[[agent]]
+name = "EA"
+path = "/Users/you/Documents/Tasks"
+kind = "persistent"
+
+[[agent]]
+name = "Sidekick"
+path = "/Users/you/Documents/code/atlas"
+kind = "persistent"
+
+[[agent]]
+name = "GTM"
+path = "/Users/you/Documents/code/atlas-gtm"
+kind = "persistent"
+
+[[agent]]
+name = "Toolkit"
+path = "/Users/you/Documents/toolkit"
+kind = "persistent"
+
+# Ephemeral agents are excluded from `a-team all`.
+[[agent]]
+name = "fii-research"
+path = "/Users/you/Documents/Masterworks/mena"
+kind = "ephemeral"

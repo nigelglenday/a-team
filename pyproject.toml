@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "a-team"
+version = "0.1.0"
+description = "Parallel Claude Code session manager for Ghostty. I love it when a plan comes together."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Nigel Glenday" }]
+keywords = ["claude-code", "ghostty", "cli", "session-manager", "macos"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+]
+dependencies = [
+    "rich>=13.0",
+    "questionary>=2.0",
+    "click>=8.1",
+    "tomli-w>=1.0",
+]
+
+[project.scripts]
+a-team = "a_team.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/nigelglenday/a-team"
+Repository = "https://github.com/nigelglenday/a-team"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/a_team"]
