@@ -18,22 +18,67 @@ def _ensure_config_exists() -> None:
         CONFIG_PATH.write_text("# a-team agent registry\n")
 
 
+def _load_raw() -> dict:
+    _ensure_config_exists()
+    with CONFIG_PATH.open("rb") as f:
+        return tomllib.load(f)
+
+
+def _save_raw(data: dict) -> None:
+    _ensure_config_exists()
+    with CONFIG_PATH.open("wb") as f:
+        tomli_w.dump(data, f)
+
+
 def load_agents() -> list[dict]:
     """Return the list of agent dicts from agents.toml.
 
-    Each dict has keys: name, path, kind.
+    Each dict has keys: name, path, kind, and optionally category.
     """
-    _ensure_config_exists()
-    with CONFIG_PATH.open("rb") as f:
-        data = tomllib.load(f)
-    return data.get("agent", [])
+    return _load_raw().get("agent", [])
 
 
 def save_agents(agents: list[dict]) -> None:
-    """Write the full list back to agents.toml."""
-    _ensure_config_exists()
-    with CONFIG_PATH.open("wb") as f:
-        tomli_w.dump({"agent": agents}, f)
+    """Write the agent list back, preserving any [settings] table."""
+    data = _load_raw()
+    data["agent"] = agents
+    _save_raw(data)
+
+
+# ---------------------------------------------------------------------------
+# Settings
+# ---------------------------------------------------------------------------
+
+
+def load_settings() -> dict:
+    """Return the [settings] table (or empty dict if absent)."""
+    return _load_raw().get("settings", {})
+
+
+def get_setting(key: str) -> str | None:
+    return load_settings().get(key)
+
+
+def set_setting(key: str, value: str | None) -> None:
+    """Set or clear a setting. Pass value=None to clear."""
+    data = _load_raw()
+    settings = data.setdefault("settings", {})
+    if value is None:
+        settings.pop(key, None)
+        if not settings:
+            data.pop("settings", None)
+    else:
+        settings[key] = value
+    _save_raw(data)
+
+
+def get_default_parent() -> Path | None:
+    """Return the default parent directory for scaffolded agents, or None."""
+    raw = get_setting("default_parent")
+    if not raw:
+        return None
+    p = Path(raw).expanduser().resolve()
+    return p if p.is_dir() else None
 
 
 def find_agent(name: str) -> dict | None:

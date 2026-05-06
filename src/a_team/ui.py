@@ -172,13 +172,16 @@ def pick_agent(agents: list[dict], cwd_unregistered: bool = False) -> Optional[d
 def prompt_new_agent(
     default_path: Optional[str] = None,
     existing_categories: Optional[list[str]] = None,
+    default_parent: Optional[str] = None,
 ) -> Optional[dict]:
     """Walk the user through creating a new agent. Returns the new
     agent dict (with name/path/kind/category), or None if cancelled.
 
-    If `default_path` is None, the macOS clipboard contents are tried
-    next — supports the Finder "Copy as Pathname" workflow.
+    Path field default order: explicit `default_path` arg → macOS
+    clipboard → `<default_parent>/<name>/` → empty.
     """
+    from pathlib import Path
+
     name = questionary.text(
         "Name:",
         style=_picker_style,
@@ -186,9 +189,13 @@ def prompt_new_agent(
     ).ask()
     if not name:
         return None
+    name = name.strip()
 
     if not default_path:
         default_path = _clipboard_path_or_empty()
+
+    if not default_path and default_parent:
+        default_path = str(Path(default_parent).expanduser() / name)
 
     path = questionary.path(
         "Folder:",
@@ -238,7 +245,7 @@ def prompt_new_agent(
         category = category.strip()
 
     return {
-        "name": name.strip(),
+        "name": name,
         "path": path,
         "kind": kind,
         "category": category,

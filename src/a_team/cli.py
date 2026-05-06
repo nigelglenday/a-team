@@ -110,32 +110,106 @@ def all_cmd(ctx: click.Context) -> None:
 def new_cmd(name: str, path: str | None, ephemeral: bool, category: str | None) -> None:
     """Register a new agent.
 
-    PATH must be an existing directory. If omitted, falls back to the macOS
-    clipboard — copy a folder's path in Finder (Shift+Right-click →
-    "Copy 'X' as Pathname"), then run `a-team new <name>`.
+    PATH lookup order if omitted:
+      1. macOS clipboard (Finder: Shift+Right-click → Copy as Pathname)
+      2. Scaffold <default_parent>/<name>/ if `default_parent` is set
+         (see `a-team config default-parent <path>`)
     """
-    if path is None:
-        path = _clipboard_path()
-        if not path:
-            ui.error("No path argument given and clipboard does not contain a valid directory path.")
-            ui.console.print(
-                "[soft]Tip: in Finder, Shift+Right-click the folder → Copy as Pathname, then re-run.[/soft]"
-            )
-            sys.exit(1)
-        ui.info(f"Using path from clipboard: {path}")
-
-    if not Path(path).expanduser().is_dir():
-        ui.error(f"path is not a directory: {path}")
+    resolved = _resolve_new_path(name, path)
+    if resolved is None:
         sys.exit(1)
 
     kind = "ephemeral" if ephemeral else "persistent"
     try:
-        agent = config.add_agent(name, path, kind=kind, category=category)
+        agent = config.add_agent(name, resolved, kind=kind, category=category)
     except ValueError as e:
         ui.error(str(e))
         sys.exit(1)
     cat_suffix = f", {agent['category']}" if agent.get("category") else ""
     ui.info(f"Added agent '{agent['name']}' ({agent['kind']}{cat_suffix}) → {agent['path']}")
+
+
+def _resolve_new_path(name: str, path: str | None) -> str | None:
+    """Decide the path for a new agent, given (possibly None) input.
+
+    Returns the resolved path string, or None if it couldn't be determined
+    (in which case an error has already been printed).
+    """
+    if path:
+        if not Path(path).expanduser().is_dir():
+            ui.error(f"path is not a directory: {path}")
+            return None
+        return path
+
+    clip = _clipboard_path()
+    if clip:
+        ui.info(f"Using path from clipboard: {clip}")
+        return clip
+
+    parent = config.get_default_parent()
+    if parent:
+        scaffolded = parent / name
+        try:
+            scaffolded.mkdir(parents=False, exist_ok=False)
+        except FileExistsError:
+            if not scaffolded.is_dir():
+                ui.error(f"{scaffolded} exists but is not a directory")
+                return None
+            ui.info(f"Using existing folder: {scaffolded}")
+        else:
+            ui.info(f"Created folder: {scaffolded}")
+        return str(scaffolded)
+
+    ui.error("No path argument, no valid clipboard path, and no default_parent set.")
+    ui.console.print(
+        "[soft]Set one with: a-team config default-parent ~/Documents/other-projects[/soft]"
+    )
+    return None
+
+
+@cli.group("config")
+def config_cmd() -> None:
+    """Show or set a-team settings (stored in agents.toml)."""
+
+
+@config_cmd.command("show")
+def config_show() -> None:
+    """Print all current settings."""
+    settings = config.load_settings()
+    if not settings:
+        ui.console.print("[soft]No settings set.[/soft]")
+        return
+    for k, v in settings.items():
+        print(f"{k}\t{v}")
+
+
+@config_cmd.command("default-parent")
+@click.argument("path", required=False, default=None)
+@click.option("--unset", is_flag=True, help="Clear the default_parent setting.")
+def config_default_parent(path: str | None, unset: bool) -> None:
+    """Set the default parent directory for new agents.
+
+    When `a-team new <name>` is called without a path and the clipboard
+    has no valid path, a folder is created under <default_parent>/<name>/.
+    """
+    if unset:
+        config.set_setting("default_parent", None)
+        ui.info("Cleared default_parent.")
+        return
+    if not path:
+        current = config.get_setting("default_parent")
+        if current:
+            print(current)
+        else:
+            ui.console.print("[soft]default_parent is not set.[/soft]")
+        return
+
+    expanded = Path(path).expanduser().resolve()
+    if not expanded.is_dir():
+        ui.error(f"path is not a directory: {expanded}")
+        sys.exit(1)
+    config.set_setting("default_parent", str(expanded))
+    ui.info(f"Set default_parent → {expanded}")
 
 
 @cli.command("rm")
@@ -217,16 +291,33 @@ def run_picker(no_splash: bool = False) -> None:
 
 
 def _create_agent_flow(default_path: str | None = None) -> None:
+    parent = config.get_default_parent()
     new = ui.prompt_new_agent(
         default_path=default_path,
         existing_categories=config.list_categories(),
+        default_parent=str(parent) if parent else None,
     )
     if not new:
         return
+
+    # Scaffold the folder if it doesn't exist but the parent does.
+    p = Path(new["path"]).expanduser()
+    if not p.exists():
+        if p.parent.is_dir():
+            try:
+                p.mkdir(parents=False, exist_ok=False)
+                ui.info(f"Created folder: {p}")
+            except OSError as e:
+                ui.error(f"could not create {p}: {e}")
+                return
+        else:
+            ui.error(f"path does not exist and parent is missing: {p}")
+            return
+
     try:
         agent = config.add_agent(
             new["name"],
-            new["path"],
+            str(p),
             kind=new["kind"],
             category=new.get("category"),
         )
