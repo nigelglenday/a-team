@@ -3,17 +3,36 @@
 Ghostty's `+new-window` CLI is unsupported on macOS, so we drive the
 GUI via AppleScript "System Events" — same pattern as the existing
 Launchpad-style .app bundles.
+
+Title persistence: Claude Code (and other apps) frequently emit their
+own OSC-0 title sequences, which would clobber a one-time printf at
+the start. To keep the agent name visible, we spawn a background loop
+that re-emits the OSC-0 sequence every second. A trap on the parent
+shell cleans it up when claude exits or the window is closed.
 """
 
 import subprocess
 import time
 
-# The keystroked command sets the window title via OSC-0, then cd's
-# and resumes the most recent Claude Code session in that folder.
+# Bash command keystroked into the new Ghostty window. The grouped
+# command:
+#   1. Backgrounds a loop that re-emits OSC-0 every second so other
+#      programs (e.g., claude) can't permanently clobber the title
+#   2. Stores its PID and traps EXIT/HUP/INT/TERM to kill it on cleanup
+#   3. cd's into the agent folder
+#   4. Runs claude --continue
 #
-# The double backslashes in the AppleScript become single backslashes
-# in the runtime AppleScript string, then bash's printf interprets
-# \e (ESC) and \a (BEL) to emit the OSC-0 title sequence.
+# Raw strings throughout so the `\e`, `\a`, and `\"` characters survive
+# Python → AppleScript → terminal as literal `\e`, `\a`, and `"`.
+_BASH_COMMAND = (
+    r"{ "
+    r"( while :; do printf '\\e]0;__NAME__\\a'; sleep 1; done ) & "
+    r"TPID=$!; "
+    r'trap \"kill $TPID 2>/dev/null\" EXIT INT TERM HUP; '
+    r"cd '__PATH__' && claude --continue; "
+    r"}"
+)
+
 _APPLESCRIPT_TEMPLATE = r'''
 tell application "Ghostty"
     activate
@@ -25,20 +44,31 @@ tell application "System Events"
 end tell
 delay 0.5
 tell application "System Events"
-    keystroke "printf '\\e]0;{name}\\a' && cd '{path}' && claude --continue"
+    keystroke "__BASH_COMMAND__"
     key code 36
 end tell
 '''
 
 
+def _validate(name: str, path: str) -> None:
+    """Reject inputs that would break AppleScript or bash quoting."""
+    if any(ch in name for ch in ('"', "\\", "\n", "\r")):
+        raise ValueError(f"agent name cannot contain quotes, backslashes, or newlines: {name!r}")
+    if any(ch in path for ch in ("'", "\n", "\r")):
+        raise ValueError(f"agent path cannot contain single quotes or newlines: {path!r}")
+
+
 def open_agent(name: str, path: str) -> None:
     """Open a new Ghostty window for the agent.
 
-    Spawns a Ghostty window, sets the title to `name`, cd's into
-    `path`, and runs `claude --continue` to resume the most recent
-    session in that folder.
+    Spawns a Ghostty window, sets the title to `name` (and keeps it
+    set via a re-emit loop so other programs can't clobber it), cd's
+    into `path`, and runs `claude --continue` to resume the most
+    recent session.
     """
-    script = _APPLESCRIPT_TEMPLATE.format(name=name, path=path)
+    _validate(name, path)
+    bash = _BASH_COMMAND.replace("__NAME__", name).replace("__PATH__", path)
+    script = _APPLESCRIPT_TEMPLATE.replace("__BASH_COMMAND__", bash)
     subprocess.run(["osascript", "-e", script], check=True)
 
 
