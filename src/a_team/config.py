@@ -1,32 +1,47 @@
 """Read and write the agents.toml registry."""
 
+import os
 import tomllib
 from pathlib import Path
 from typing import Literal
 
 import tomli_w
 
-CONFIG_PATH = Path.home() / ".config" / "a-team" / "agents.toml"
+_DEFAULT_CONFIG_PATH = Path.home() / ".config" / "a-team" / "agents.toml"
 
 AgentKind = Literal["persistent", "ephemeral"]
 
 
+def config_path() -> Path:
+    """Return the active config path. Override via $A_TEAM_CONFIG for demos
+    or alternate registries."""
+    env = os.environ.get("A_TEAM_CONFIG")
+    if env:
+        return Path(env).expanduser()
+    return _DEFAULT_CONFIG_PATH
+
+
+# Backwards-compatible alias for callers reading the path directly.
+CONFIG_PATH = _DEFAULT_CONFIG_PATH
+
+
 def _ensure_config_exists() -> None:
     """Create the config dir + empty file if missing."""
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if not CONFIG_PATH.exists():
-        CONFIG_PATH.write_text("# a-team agent registry\n")
+    p = config_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    if not p.exists():
+        p.write_text("# a-team agent registry\n")
 
 
 def _load_raw() -> dict:
     _ensure_config_exists()
-    with CONFIG_PATH.open("rb") as f:
+    with config_path().open("rb") as f:
         return tomllib.load(f)
 
 
 def _save_raw(data: dict) -> None:
     _ensure_config_exists()
-    with CONFIG_PATH.open("wb") as f:
+    with config_path().open("wb") as f:
         tomli_w.dump(data, f)
 
 
