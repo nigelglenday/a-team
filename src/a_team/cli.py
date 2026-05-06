@@ -4,18 +4,41 @@ Subcommand layout:
     a-team                  picker (splash + arrow-key + filter)
     a-team <name>           direct-open shortcut for any agent name
     a-team all              restore every persistent agent
-    a-team new <name> <path>
+    a-team new <name> [<path>]   path defaults to clipboard if omitted
     a-team rm <name>
     a-team ls
 """
 
 import os
+import subprocess
 import sys
+from pathlib import Path
 
 import click
 import questionary
 
 from . import config, spawn, ui
+
+
+def _clipboard_path() -> str | None:
+    """Return clipboard contents if it looks like an existing directory.
+
+    Designed for the Finder flow: Shift+Right-click → Copy "X" as Pathname,
+    then `a-team new <name>` (no path arg) picks it up automatically.
+    """
+    try:
+        result = subprocess.run(
+            ["pbpaste"], capture_output=True, text=True, timeout=2, check=True
+        )
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return None
+    candidate = result.stdout.strip()
+    if not candidate:
+        return None
+    expanded = Path(candidate).expanduser()
+    if expanded.is_dir():
+        return str(expanded)
+    return None
 
 
 class AteamGroup(click.Group):
@@ -81,17 +104,38 @@ def all_cmd(ctx: click.Context) -> None:
 
 @cli.command("new")
 @click.argument("name")
-@click.argument("path", type=click.Path(exists=True, file_okay=False, dir_okay=True))
+@click.argument("path", required=False, default=None)
 @click.option("--ephemeral", is_flag=True, help="Mark as ephemeral (excluded from `a-team all`).")
-def new_cmd(name: str, path: str, ephemeral: bool) -> None:
-    """Register a new agent. Path must be an existing directory."""
+@click.option("--category", "-c", default=None, help="Category for grouping in the picker.")
+def new_cmd(name: str, path: str | None, ephemeral: bool, category: str | None) -> None:
+    """Register a new agent.
+
+    PATH must be an existing directory. If omitted, falls back to the macOS
+    clipboard — copy a folder's path in Finder (Shift+Right-click →
+    "Copy 'X' as Pathname"), then run `a-team new <name>`.
+    """
+    if path is None:
+        path = _clipboard_path()
+        if not path:
+            ui.error("No path argument given and clipboard does not contain a valid directory path.")
+            ui.console.print(
+                "[soft]Tip: in Finder, Shift+Right-click the folder → Copy as Pathname, then re-run.[/soft]"
+            )
+            sys.exit(1)
+        ui.info(f"Using path from clipboard: {path}")
+
+    if not Path(path).expanduser().is_dir():
+        ui.error(f"path is not a directory: {path}")
+        sys.exit(1)
+
     kind = "ephemeral" if ephemeral else "persistent"
     try:
-        agent = config.add_agent(name, path, kind=kind)
+        agent = config.add_agent(name, path, kind=kind, category=category)
     except ValueError as e:
         ui.error(str(e))
         sys.exit(1)
-    ui.info(f"Added agent '{agent['name']}' ({agent['kind']}) → {agent['path']}")
+    cat_suffix = f", {agent['category']}" if agent.get("category") else ""
+    ui.info(f"Added agent '{agent['name']}' ({agent['kind']}{cat_suffix}) → {agent['path']}")
 
 
 @cli.command("rm")
@@ -107,13 +151,18 @@ def rm_cmd(name: str) -> None:
 
 @cli.command("ls")
 def ls_cmd() -> None:
-    """List registered agents in plain text (pipe-friendly)."""
+    """List registered agents in plain text (pipe-friendly).
+
+    Output: name <TAB> category <TAB> kind <TAB> path
+    """
     agents = config.load_agents()
     if not agents:
         return
     name_width = max(len(a["name"]) for a in agents)
+    cat_width = max((len(a.get("category", "")) for a in agents), default=0)
     for a in agents:
-        print(f"{a['name']:<{name_width}}\t{a['kind']:<10}\t{a['path']}")
+        cat = a.get("category", "")
+        print(f"{a['name']:<{name_width}}\t{cat:<{cat_width}}\t{a['kind']:<10}\t{a['path']}")
 
 
 # ---------------------------------------------------------------------------
@@ -157,16 +206,25 @@ def run_picker(no_splash: bool = False) -> None:
 
 
 def _create_agent_flow(default_path: str | None = None) -> None:
-    new = ui.prompt_new_agent(default_path=default_path)
+    new = ui.prompt_new_agent(
+        default_path=default_path,
+        existing_categories=config.list_categories(),
+    )
     if not new:
         return
     try:
-        agent = config.add_agent(new["name"], new["path"], kind=new["kind"])
+        agent = config.add_agent(
+            new["name"],
+            new["path"],
+            kind=new["kind"],
+            category=new.get("category"),
+        )
     except ValueError as e:
         ui.error(str(e))
         return
 
-    ui.info(f"Added agent '{agent['name']}' ({agent['kind']}).")
+    cat = f", {agent['category']}" if agent.get("category") else ""
+    ui.info(f"Added agent '{agent['name']}' ({agent['kind']}{cat}).")
 
     # Offer to open it right away.
     open_now = questionary.confirm(
@@ -183,7 +241,9 @@ def _manage_flow(agents: list[dict]) -> None:
     if not target:
         return
 
-    result = ui.prompt_manage_agent(target)
+    result = ui.prompt_manage_agent(
+        target, existing_categories=config.list_categories()
+    )
     if not result:
         return
 
@@ -194,6 +254,10 @@ def _manage_flow(agents: list[dict]) -> None:
         elif result["action"] == "edit_path":
             config.update_agent(target["name"], new_path=result["new_path"])
             ui.info(f"Updated path for '{target['name']}'.")
+        elif result["action"] == "edit_category":
+            config.update_agent(target["name"], new_category=result["new_category"])
+            label = result["new_category"] or "(none)"
+            ui.info(f"Set category of '{target['name']}' to {label}.")
         elif result["action"] == "remove":
             config.remove_agent(target["name"])
             ui.info(f"Removed agent '{target['name']}' (folder kept).")

@@ -63,11 +63,41 @@ def print_splash(agent_count: int) -> None:
     console.print(f"[border]{'═' * 52}[/border]\n")
 
 
+def _short_path(path: str, max_len: int = 60) -> str:
+    """Replace home with ~ and truncate from the left if still too long."""
+    from pathlib import Path
+
+    home = str(Path.home())
+    if path.startswith(home):
+        path = "~" + path[len(home):]
+    if len(path) <= max_len:
+        return path
+    parts = path.split("/")
+    if len(parts) <= 3:
+        return path
+    return ".../" + "/".join(parts[-2:])
+
+
 def _format_agent_row(agent: dict, name_width: int) -> str:
     name = agent["name"]
     kind = agent["kind"]
-    path = agent["path"]
-    return f"  {name:<{name_width}}  {kind:<10}  {path}"
+    badge = "" if kind == "persistent" else "[ephemeral] "
+    return f"  {name:<{name_width}}  {badge}{_short_path(agent['path'])}"
+
+
+_UNCATEGORIZED = "Other"
+
+
+def _group_by_category(agents: list[dict]) -> dict[str, list[dict]]:
+    """Bucket agents by category. Agents without a category land in 'Other'."""
+    groups: dict[str, list[dict]] = {}
+    for a in agents:
+        cat = a.get("category") or _UNCATEGORIZED
+        groups.setdefault(cat, []).append(a)
+    for cat in groups:
+        # Within a category: persistent first, ephemeral after, alpha within each.
+        groups[cat].sort(key=lambda a: (a["kind"] != "persistent", a["name"].lower()))
+    return groups
 
 
 def pick_agent(agents: list[dict], cwd_unregistered: bool = False) -> Optional[dict]:
@@ -77,18 +107,20 @@ def pick_agent(agents: list[dict], cwd_unregistered: bool = False) -> Optional[d
     - an agent dict (selected for opening)
     - ACTION_CREATE / ACTION_MANAGE / ACTION_REGISTER_CWD / ACTION_CANCEL
     - None if the user cancelled (Ctrl-C / ESC)
-    """
-    # Sort: persistent first, then ephemeral; alphabetical within each.
-    persistent = sorted(
-        [a for a in agents if a["kind"] == "persistent"], key=lambda a: a["name"].lower()
-    )
-    ephemeral = sorted(
-        [a for a in agents if a["kind"] == "ephemeral"], key=lambda a: a["name"].lower()
-    )
-    sorted_agents = persistent + ephemeral
 
-    name_width = max((len(a["name"]) for a in sorted_agents), default=12)
+    Agents are grouped by their `category` field; uncategorized fall under
+    "Other". Categories render in insertion-order from the underlying TOML
+    (so the user controls top-to-bottom order by ordering the file).
+    """
+    name_width = max((len(a["name"]) for a in agents), default=12)
     name_width = max(name_width, 12)
+
+    groups = _group_by_category(agents)
+    category_order: list[str] = []
+    for a in agents:
+        cat = a.get("category") or _UNCATEGORIZED
+        if cat not in category_order:
+            category_order.append(cat)
 
     choices: list = []
 
@@ -103,18 +135,22 @@ def pick_agent(agents: list[dict], cwd_unregistered: bool = False) -> Optional[d
         )
         choices.append(questionary.Separator())
 
-    for agent in sorted_agents:
-        choices.append(
-            questionary.Choice(
-                title=_format_agent_row(agent, name_width),
-                value=agent,
+    for i, cat in enumerate(category_order):
+        if i > 0:
+            choices.append(questionary.Separator())
+        choices.append(questionary.Separator(f"── {cat} ──"))
+        for agent in groups[cat]:
+            choices.append(
+                questionary.Choice(
+                    title=_format_agent_row(agent, name_width),
+                    value=agent,
+                )
             )
-        )
 
-    if sorted_agents:
+    if agents:
         choices.append(questionary.Separator())
     choices.append(questionary.Choice(title="  + Create new agent", value=ACTION_CREATE))
-    if sorted_agents:
+    if agents:
         choices.append(
             questionary.Choice(
                 title="  - Manage (rename / remove / edit path)", value=ACTION_MANAGE
@@ -133,9 +169,16 @@ def pick_agent(agents: list[dict], cwd_unregistered: bool = False) -> Optional[d
     return result
 
 
-def prompt_new_agent(default_path: Optional[str] = None) -> Optional[dict]:
+def prompt_new_agent(
+    default_path: Optional[str] = None,
+    existing_categories: Optional[list[str]] = None,
+) -> Optional[dict]:
     """Walk the user through creating a new agent. Returns the new
-    agent dict (with name/path/kind), or None if cancelled."""
+    agent dict (with name/path/kind/category), or None if cancelled.
+
+    If `default_path` is None, the macOS clipboard contents are tried
+    next — supports the Finder "Copy as Pathname" workflow.
+    """
     name = questionary.text(
         "Name:",
         style=_picker_style,
@@ -143,6 +186,9 @@ def prompt_new_agent(default_path: Optional[str] = None) -> Optional[dict]:
     ).ask()
     if not name:
         return None
+
+    if not default_path:
+        default_path = _clipboard_path_or_empty()
 
     path = questionary.path(
         "Folder:",
@@ -168,13 +214,61 @@ def prompt_new_agent(default_path: Optional[str] = None) -> Optional[dict]:
     if not kind:
         return None
 
-    return {"name": name.strip(), "path": path, "kind": kind}
+    category_choices: list = []
+    if existing_categories:
+        for cat in existing_categories:
+            category_choices.append(questionary.Choice(title=cat, value=cat))
+        category_choices.append(questionary.Separator())
+    category_choices.append(questionary.Choice(title="+ New category…", value="__new__"))
+    category_choices.append(questionary.Choice(title="(none)", value=None))
+
+    category = questionary.select(
+        "Category:",
+        choices=category_choices,
+        style=_picker_style,
+    ).ask()
+    if category == "__new__":
+        category = questionary.text(
+            "New category name:",
+            style=_picker_style,
+            validate=lambda v: True if v.strip() else "category is required",
+        ).ask()
+        if not category:
+            return None
+        category = category.strip()
+
+    return {
+        "name": name.strip(),
+        "path": path,
+        "kind": kind,
+        "category": category,
+    }
 
 
-def prompt_manage_agent(agent: dict) -> Optional[dict]:
+def _clipboard_path_or_empty() -> str:
+    """Read clipboard via pbpaste; return only if it's an existing dir, else ''."""
+    import subprocess
+    from pathlib import Path
+
+    try:
+        result = subprocess.run(
+            ["pbpaste"], capture_output=True, text=True, timeout=2, check=True
+        )
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return ""
+    candidate = result.stdout.strip()
+    if candidate and Path(candidate).expanduser().is_dir():
+        return candidate
+    return ""
+
+
+def prompt_manage_agent(
+    agent: dict, existing_categories: Optional[list[str]] = None
+) -> Optional[dict]:
     """Ask what to do with an agent. Returns a dict like:
     - {"action": "rename", "new_name": "..."}
     - {"action": "edit_path", "new_path": "..."}
+    - {"action": "edit_category", "new_category": "..." | None}
     - {"action": "remove"}
     - None if cancelled.
     """
@@ -183,6 +277,7 @@ def prompt_manage_agent(agent: dict) -> Optional[dict]:
         choices=[
             questionary.Choice(title="Rename", value="rename"),
             questionary.Choice(title="Edit path", value="edit_path"),
+            questionary.Choice(title="Change category", value="edit_category"),
             questionary.Choice(title="Remove", value="remove"),
             questionary.Choice(title="Cancel", value="cancel"),
         ],
@@ -213,6 +308,32 @@ def prompt_manage_agent(agent: dict) -> Optional[dict]:
         if not new_path:
             return None
         return {"action": "edit_path", "new_path": new_path}
+
+    if action == "edit_category":
+        cat_choices: list = []
+        if existing_categories:
+            for cat in existing_categories:
+                cat_choices.append(questionary.Choice(title=cat, value=cat))
+            cat_choices.append(questionary.Separator())
+        cat_choices.append(questionary.Choice(title="+ New category…", value="__new__"))
+        cat_choices.append(questionary.Choice(title="(none)", value=""))
+        new_category = questionary.select(
+            "Category:",
+            choices=cat_choices,
+            style=_picker_style,
+        ).ask()
+        if new_category is None:
+            return None
+        if new_category == "__new__":
+            new_category = questionary.text(
+                "New category name:",
+                style=_picker_style,
+                validate=lambda v: True if v.strip() else "category is required",
+            ).ask()
+            if not new_category:
+                return None
+            new_category = new_category.strip()
+        return {"action": "edit_category", "new_category": new_category}
 
     if action == "remove":
         confirm = questionary.confirm(

@@ -44,7 +44,12 @@ def find_agent(name: str) -> dict | None:
     return None
 
 
-def add_agent(name: str, path: str, kind: AgentKind = "persistent") -> dict:
+def add_agent(
+    name: str,
+    path: str,
+    kind: AgentKind = "persistent",
+    category: str | None = None,
+) -> dict:
     """Append a new agent. Raises ValueError if name already exists or
     path doesn't exist."""
     if find_agent(name):
@@ -54,7 +59,9 @@ def add_agent(name: str, path: str, kind: AgentKind = "persistent") -> dict:
         raise ValueError(f"path is not a directory: {path}")
 
     agents = load_agents()
-    agent = {"name": name, "path": str(resolved), "kind": kind}
+    agent: dict = {"name": name, "path": str(resolved), "kind": kind}
+    if category:
+        agent["category"] = category
     agents.append(agent)
     save_agents(agents)
     return agent
@@ -70,9 +77,15 @@ def remove_agent(name: str) -> bool:
     return True
 
 
-def update_agent(name: str, *, new_name: str | None = None, new_path: str | None = None) -> dict:
-    """Rename or change the path of an existing agent. Raises if not found
-    or if new_name collides."""
+def update_agent(
+    name: str,
+    *,
+    new_name: str | None = None,
+    new_path: str | None = None,
+    new_category: str | None = None,
+) -> dict:
+    """Rename, change path, or change category of an existing agent.
+    Raises if not found or if new_name collides."""
     agents = load_agents()
     target = next((a for a in agents if a["name"] == name), None)
     if not target:
@@ -89,8 +102,24 @@ def update_agent(name: str, *, new_name: str | None = None, new_path: str | None
             raise ValueError(f"path is not a directory: {new_path}")
         target["path"] = str(resolved)
 
+    if new_category is not None:
+        if new_category:
+            target["category"] = new_category
+        else:
+            target.pop("category", None)
+
     save_agents(agents)
     return target
+
+
+def list_categories() -> list[str]:
+    """Return all distinct category names currently in use, in insertion order."""
+    seen: list[str] = []
+    for a in load_agents():
+        cat = a.get("category")
+        if cat and cat not in seen:
+            seen.append(cat)
+    return seen
 
 
 def is_path_registered(path: str) -> bool:
