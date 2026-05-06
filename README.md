@@ -58,20 +58,20 @@ The picker also surfaces `+ Create new agent` and `- Manage` so you rarely touch
 
 ```toml
 [[agent]]
-name = "EA"
-path = "/Users/you/Documents/Tasks"
+name = "Tasks"
+path = "/Users/you/Documents/tasks"
 kind = "persistent"
 category = "Personal"
 
 [[agent]]
-name = "Sidekick"
-path = "/Users/you/code/atlas"
+name = "Webapp"
+path = "/Users/you/code/webapp"
 kind = "persistent"
-category = "Atlas"
+category = "Work"
 
 [[agent]]
-name = "fii-research"
-path = "/Users/you/research/fii"
+name = "scratch"
+path = "/Users/you/Documents/scratch"
 kind = "ephemeral"
 ```
 
