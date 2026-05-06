@@ -1,28 +1,35 @@
 # Example a-team agent registry.
 # Save your real one to ~/.config/a-team/agents.toml.
+#
+# Order in this file = order in the picker.
+# Agents with the same `category` are grouped together.
 
 [[agent]]
-name = "EA"
-path = "/Users/you/Documents/Tasks"
+name = "Tasks"
+path = "/Users/you/Documents/tasks"
 kind = "persistent"
-
-[[agent]]
-name = "Sidekick"
-path = "/Users/you/Documents/code/atlas"
-kind = "persistent"
-
-[[agent]]
-name = "GTM"
-path = "/Users/you/Documents/code/atlas-gtm"
-kind = "persistent"
+category = "Personal"
 
 [[agent]]
 name = "Toolkit"
 path = "/Users/you/Documents/toolkit"
 kind = "persistent"
+category = "Personal"
+
+[[agent]]
+name = "Webapp"
+path = "/Users/you/code/webapp"
+kind = "persistent"
+category = "Work"
+
+[[agent]]
+name = "API"
+path = "/Users/you/code/api"
+kind = "persistent"
+category = "Work"
 
 # Ephemeral agents are excluded from `a-team all`.
 [[agent]]
-name = "fii-research"
-path = "/Users/you/Documents/Masterworks/mena"
+name = "scratch"
+path = "/Users/you/Documents/scratch"
 kind = "ephemeral"
