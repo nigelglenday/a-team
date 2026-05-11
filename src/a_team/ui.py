@@ -153,7 +153,7 @@ def pick_agent(agents: list[dict], cwd_unregistered: bool = False) -> Optional[d
 
     if agents:
         choices.append(questionary.Separator())
-    choices.append(questionary.Choice(title="  + Create new agent", value=ACTION_CREATE))
+    choices.append(questionary.Choice(title="  + Add agent (existing folder or new)", value=ACTION_CREATE))
     if agents:
         choices.append(
             questionary.Choice(
