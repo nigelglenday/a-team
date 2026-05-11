@@ -102,6 +102,34 @@ def all_cmd(ctx: click.Context) -> None:
     ui.info("Done.")
 
 
+@cli.command("here")
+@click.argument("name", required=False, default=None)
+@click.option("--ephemeral", is_flag=True, help="Mark as ephemeral (excluded from `a-team all`).")
+@click.option("--category", "-c", default=None, help="Category for grouping in the picker.")
+def here_cmd(name: str | None, ephemeral: bool, category: str | None) -> None:
+    """Register the current working directory as an agent.
+
+    Name defaults to the directory's basename if omitted. Useful for adding
+    an existing project folder you're already working in without typing the
+    full path.
+
+    Examples:
+        cd ~/Documents/some-project && a-team here
+        cd ~/Documents/some-project && a-team here MyAgent -c Work
+    """
+    cwd = os.getcwd()
+    if name is None:
+        name = Path(cwd).name
+    kind = "ephemeral" if ephemeral else "persistent"
+    try:
+        agent = config.add_agent(name, cwd, kind=kind, category=category)
+    except ValueError as e:
+        ui.error(str(e))
+        sys.exit(1)
+    cat_suffix = f", {agent['category']}" if agent.get("category") else ""
+    ui.info(f"Added agent '{agent['name']}' ({agent['kind']}{cat_suffix}) → {agent['path']}")
+
+
 @cli.command("new")
 @click.argument("name")
 @click.argument("path", required=False, default=None)

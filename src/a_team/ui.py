@@ -411,6 +411,7 @@ def show_help(interactive: bool = True) -> None:
     console.print("  [nav]a-team <name>[/nav]                   open that agent directly")
     console.print("  [nav]a-team all[/nav]                      restore every persistent agent")
     console.print("  [nav]a-team new <name> [<path>][/nav]      register agent")
+    console.print("  [nav]a-team here [name][/nav]              register current folder")
     console.print("  [nav]a-team rm <name>[/nav]                unregister (folder kept)")
     console.print("  [nav]a-team ls[/nav]                       plain list (pipe-friendly)")
     console.print("  [nav]a-team config show[/nav]              show settings")
