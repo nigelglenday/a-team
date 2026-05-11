@@ -160,14 +160,28 @@ def new_cmd(name: str, path: str | None, ephemeral: bool, category: str | None) 
 def _resolve_new_path(name: str, path: str | None) -> str | None:
     """Decide the path for a new agent, given (possibly None) input.
 
+    Behavior:
+      - If `path` exists: register it as-is.
+      - If `path` doesn't exist but its parent does: scaffold the folder
+        and register it.
+      - If `path` is missing entirely: try clipboard, then default_parent.
     Returns the resolved path string, or None if it couldn't be determined
     (in which case an error has already been printed).
     """
     if path:
-        if not Path(path).expanduser().is_dir():
-            ui.error(f"path is not a directory: {path}")
-            return None
-        return path
+        p = Path(path).expanduser()
+        if p.is_dir():
+            return str(p)
+        if p.parent.is_dir():
+            try:
+                p.mkdir(parents=False, exist_ok=False)
+            except OSError as e:
+                ui.error(f"could not create {p}: {e}")
+                return None
+            ui.info(f"Created folder: {p}")
+            return str(p)
+        ui.error(f"path does not exist and parent is missing: {path}")
+        return None
 
     clip = _clipboard_path()
     if clip:
