@@ -114,11 +114,12 @@ Initial release. Picker, splash, categories, `new`/`rm`/`ls`/`all`, persistent v
 
 ## Part of termpaper
 
-`a-team` is one of three TUI tools for managing Claude Code state from the terminal:
+`a-team` is one of four utilities for managing Claude Code state from the terminal:
 
 - **[a-team](https://github.com/nigelglenday/a-team)** — parallel sessions (this repo)
 - **[whispertty](https://github.com/nigelglenday/whispertty)** — record + transcribe + diarize audio
 - **[skillbox](https://github.com/nigelglenday/skillbox)** — inventory and manage skills, slash commands, subagents
+- **[eagent](https://github.com/nigelglenday/eagent)** — multi-session executive assistant pattern, file-based messaging
 
 See [termpaper.dev](https://termpaper.dev) for the suite.
 
