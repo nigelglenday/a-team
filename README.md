@@ -1,6 +1,6 @@
 # a-team
 
-![Version](https://img.shields.io/badge/version-0.2.0-orange) ![License](https://img.shields.io/badge/license-MIT-yellow) ![Python](https://img.shields.io/badge/python-3.11%2B-blue) ![Platform](https://img.shields.io/badge/platform-macOS-black) ![Ghostty](https://img.shields.io/badge/terminal-Ghostty-orange)
+![Version](https://img.shields.io/badge/version-0.2.0-orange) ![License](https://img.shields.io/badge/license-MIT-yellow) ![Python](https://img.shields.io/badge/python-3.11%2B-blue) ![Platform](https://img.shields.io/badge/platform-macOS-black) ![Ghostty](https://img.shields.io/badge/terminal-Ghostty-orange) ![Termpaper](https://img.shields.io/badge/suite-termpaper-cyan)
 
 > *I love it when a plan comes together.*
 
@@ -111,6 +111,16 @@ Title via OSC-0, then `cd`, then resume.
 ### 0.1.0 (2026-04-29)
 
 Initial release. Picker, splash, categories, `new`/`rm`/`ls`/`all`, persistent vs. ephemeral kinds, AppleScript-driven Ghostty spawning.
+
+## Part of termpaper
+
+`a-team` is one of three TUI tools for managing Claude Code state from the terminal:
+
+- **[a-team](https://github.com/nigelglenday/a-team)** — parallel sessions (this repo)
+- **[whispertty](https://github.com/nigelglenday/whispertty)** — record + transcribe + diarize audio
+- **[skillbox](https://github.com/nigelglenday/skillbox)** — inventory and manage skills, slash commands, subagents
+
+See [termpaper.dev](https://termpaper.dev) for the suite.
 
 ## License
 
