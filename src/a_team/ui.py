@@ -87,9 +87,7 @@ def _short_path(path: str, max_len: int = 60) -> str:
 
 def _format_agent_row(agent: dict, name_width: int) -> str:
     name = agent["name"]
-    kind = agent["kind"]
-    badge = "" if kind == "persistent" else "[ephemeral] "
-    return f"  {name:<{name_width}}  {badge}{_short_path(agent['path'])}"
+    return f"  {name:<{name_width}}  {_short_path(agent['path'])}"
 
 
 _UNCATEGORIZED = "Other"
