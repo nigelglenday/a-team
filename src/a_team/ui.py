@@ -27,8 +27,14 @@ console = Console(theme=_theme)
 ACTION_CREATE = {"_action": "create"}
 ACTION_MANAGE = {"_action": "manage"}
 ACTION_REGISTER_CWD = {"_action": "register_cwd"}
+ACTION_NEW_SCRATCH = {"_action": "new_scratch"}
+ACTION_SHOW_ALL_SCRATCH = {"_action": "show_all_scratch"}
 ACTION_HELP = {"_action": "help"}
 ACTION_CANCEL = {"_action": "cancel"}
+
+# How many scratch sessions to show in the picker by default before
+# offering "Show all scratch".
+SCRATCH_VISIBLE_LIMIT = 10
 
 # Questionary style shared across all pickers.
 _picker_style = questionary.Style(
@@ -101,33 +107,52 @@ def _group_by_category(agents: list[dict]) -> dict[str, list[dict]]:
     return groups
 
 
-def pick_agent(agents: list[dict], cwd_unregistered: bool = False) -> Optional[dict]:
+def pick_agent(
+    agents: list[dict],
+    cwd_unregistered: bool = False,
+    expand_scratch: bool = False,
+) -> Optional[dict]:
     """Show the main picker.
 
     Returns one of:
     - an agent dict (selected for opening)
-    - ACTION_CREATE / ACTION_MANAGE / ACTION_REGISTER_CWD / ACTION_CANCEL
+    - ACTION_CREATE / ACTION_MANAGE / ACTION_REGISTER_CWD / ACTION_NEW_SCRATCH
+      / ACTION_SHOW_ALL_SCRATCH / ACTION_CANCEL
     - None if the user cancelled (Ctrl-C / ESC)
 
     Agents are grouped by their `category` field; uncategorized fall under
-    "Other". Categories render in insertion-order from the underlying TOML
-    (so the user controls top-to-bottom order by ordering the file).
+    "Other". Regular categories render in insertion-order from the TOML.
+    The "Scratch" category is always rendered last and capped at
+    SCRATCH_VISIBLE_LIMIT entries unless `expand_scratch=True`.
     """
+    from .config import SCRATCH_CATEGORY
+
     name_width = max((len(a["name"]) for a in agents), default=12)
     name_width = max(name_width, 12)
 
     groups = _group_by_category(agents)
+
+    # Build the category render order: regular categories in TOML insertion
+    # order first, Scratch last (regardless of where it appears in the TOML).
     category_order: list[str] = []
     for a in agents:
         cat = a.get("category") or _UNCATEGORIZED
+        if cat == SCRATCH_CATEGORY:
+            continue
         if cat not in category_order:
             category_order.append(cat)
+    if SCRATCH_CATEGORY in groups:
+        category_order.append(SCRATCH_CATEGORY)
+
+    # Scratch is sorted newest-first by name (timestamps in the name make
+    # this equivalent to creation order without touching the filesystem).
+    if SCRATCH_CATEGORY in groups:
+        groups[SCRATCH_CATEGORY].sort(key=lambda a: a["name"], reverse=True)
 
     choices: list = []
 
     if cwd_unregistered:
         import os
-        from pathlib import Path
 
         cwd = os.getcwd()
         short = _short_path(cwd)
@@ -143,17 +168,38 @@ def pick_agent(agents: list[dict], cwd_unregistered: bool = False) -> Optional[d
         if i > 0:
             choices.append(questionary.Separator())
         choices.append(questionary.Separator(f"── {cat} ──"))
-        for agent in groups[cat]:
-            choices.append(
-                questionary.Choice(
-                    title=_format_agent_row(agent, name_width),
-                    value=agent,
+
+        cat_agents = groups[cat]
+        if cat == SCRATCH_CATEGORY and not expand_scratch:
+            visible = cat_agents[:SCRATCH_VISIBLE_LIMIT]
+            hidden_count = len(cat_agents) - len(visible)
+            for agent in visible:
+                choices.append(
+                    questionary.Choice(
+                        title=_format_agent_row(agent, name_width),
+                        value=agent,
+                    )
                 )
-            )
+            if hidden_count > 0:
+                choices.append(
+                    questionary.Choice(
+                        title=f"  · Show all scratch ({len(cat_agents)})",
+                        value=ACTION_SHOW_ALL_SCRATCH,
+                    )
+                )
+        else:
+            for agent in cat_agents:
+                choices.append(
+                    questionary.Choice(
+                        title=_format_agent_row(agent, name_width),
+                        value=agent,
+                    )
+                )
 
     if agents:
         choices.append(questionary.Separator())
     choices.append(questionary.Choice(title="  + Add agent (existing folder or new)", value=ACTION_CREATE))
+    choices.append(questionary.Choice(title="  + New scratch session", value=ACTION_NEW_SCRATCH))
     if agents:
         choices.append(
             questionary.Choice(
@@ -172,6 +218,19 @@ def pick_agent(agents: list[dict], cwd_unregistered: bool = False) -> Optional[d
         use_jk_keys=False,
     ).ask()
     return result
+
+
+def prompt_scratch_label() -> Optional[str]:
+    """Quick one-line label prompt for a scratch session.
+
+    Returns the user-entered label (may be empty string if they hit Enter),
+    or None on cancel (Esc / Ctrl-C). Caller treats empty string as
+    'timestamp-only' naming.
+    """
+    return questionary.text(
+        "Label (optional, press Enter for none):",
+        style=_picker_style,
+    ).ask()
 
 
 def prompt_new_agent(
@@ -412,6 +471,7 @@ def show_help(interactive: bool = True) -> None:
     console.print("  [nav]a-team all[/nav]                      restore every persistent agent")
     console.print("  [nav]a-team new <name> [<path>][/nav]      register agent")
     console.print("  [nav]a-team here [name][/nav]              register current folder")
+    console.print("  [nav]a-team scratch [label][/nav]          one-off chat in ~/.a-team/scratch/")
     console.print("  [nav]a-team rm <name>[/nav]                unregister (folder kept)")
     console.print("  [nav]a-team ls[/nav]                       plain list (pipe-friendly)")
     console.print("  [nav]a-team config show[/nav]              show settings")

@@ -44,6 +44,8 @@ a-team                          splash + arrow-key picker (type to filter)
 a-team <name>                   open that agent directly
 a-team all                      restore every persistent agent
 a-team new <name> [<path>]      register an agent (path falls back to clipboard)
+a-team here [name]              register the current working directory
+a-team scratch [label]          one-off chat in ~/.a-team/scratch/<timestamp>[_<label>]/
 a-team rm <name>                unregister (folder is kept)
 a-team ls                       plain list, pipe-friendly
 ```
