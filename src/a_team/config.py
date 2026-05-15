@@ -11,6 +11,12 @@ _DEFAULT_CONFIG_PATH = Path.home() / ".config" / "a-team" / "agents.toml"
 
 AgentKind = Literal["persistent", "ephemeral"]
 
+# Throwaway "scratch" sessions (one-off chats) live in a hidden home dir
+# rather than ~/Documents/ so they're not TCC-protected and stay separate
+# from real project folders.
+SCRATCH_DIR = Path.home() / ".a-team" / "scratch"
+SCRATCH_CATEGORY = "Scratch"
+
 
 def config_path() -> Path:
     """Return the active config path. Override via $A_TEAM_CONFIG for demos

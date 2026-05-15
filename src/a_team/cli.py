@@ -5,13 +5,17 @@ Subcommand layout:
     a-team <name>           direct-open shortcut for any agent name
     a-team all              restore every persistent agent
     a-team new <name> [<path>]   path defaults to clipboard if omitted
+    a-team here [name]      register current folder
+    a-team scratch [label]  one-off chat in ~/.a-team/scratch/
     a-team rm <name>
     a-team ls
 """
 
 import os
+import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import click
@@ -128,6 +132,70 @@ def here_cmd(name: str | None, ephemeral: bool, category: str | None) -> None:
         sys.exit(1)
     cat_suffix = f", {agent['category']}" if agent.get("category") else ""
     ui.info(f"Added agent '{agent['name']}' ({agent['kind']}{cat_suffix}) → {agent['path']}")
+
+
+def _slugify(label: str) -> str:
+    """Lowercase, replace runs of non-alphanumerics with single hyphens,
+    trim leading/trailing hyphens. Empty string in → empty string out."""
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", label).strip("-").lower()
+    return slug
+
+
+def _scratch_name() -> str:
+    """Build a default scratch session name from the current timestamp."""
+    return time.strftime("%Y-%m-%d_%H-%M")
+
+
+def _create_scratch(label: str | None) -> dict | None:
+    """Create a scratch session: timestamped folder under SCRATCH_DIR,
+    registered as kind=ephemeral, category=Scratch. Returns the agent
+    dict, or None on failure (with an error already printed)."""
+    config.SCRATCH_DIR.mkdir(parents=True, exist_ok=True)
+
+    base = _scratch_name()
+    slug = _slugify(label or "")
+    name = f"{base}_{slug}" if slug else base
+
+    # Resolve name conflicts by appending a counter.
+    suffix = 1
+    candidate = name
+    while config.find_agent(candidate) is not None:
+        suffix += 1
+        candidate = f"{name}-{suffix}"
+    name = candidate
+
+    folder = config.SCRATCH_DIR / name
+    try:
+        folder.mkdir(parents=False, exist_ok=False)
+    except OSError as e:
+        ui.error(f"could not create scratch folder {folder}: {e}")
+        return None
+
+    try:
+        agent = config.add_agent(
+            name, str(folder), kind="ephemeral", category=config.SCRATCH_CATEGORY,
+        )
+    except ValueError as e:
+        ui.error(str(e))
+        return None
+    return agent
+
+
+@cli.command("scratch")
+@click.argument("label", required=False, default=None)
+def scratch_cmd(label: str | None) -> None:
+    """Create a one-off scratch session and open it immediately.
+
+    Scratch sessions live under ~/.a-team/scratch/<timestamp>[_<label>]/,
+    are registered as `kind=ephemeral, category=Scratch`, and skipped by
+    `a-team all`. They appear in the picker under a 'Scratch' section
+    capped at the 10 most recent (with 'Show all scratch' to expand).
+    """
+    agent = _create_scratch(label)
+    if agent is None:
+        sys.exit(1)
+    ui.info(f"Created scratch '{agent['name']}' → {agent['path']}")
+    spawn.open_agent(agent["name"], agent["path"])
 
 
 @cli.command("new")
@@ -300,6 +368,7 @@ def run_picker(no_splash: bool = False) -> None:
     """
     splash_shown = False
     last_action: str | None = None
+    expand_scratch = False  # toggled by ACTION_SHOW_ALL_SCRATCH
 
     while True:
         agents = config.load_agents()
@@ -327,7 +396,11 @@ def run_picker(no_splash: bool = False) -> None:
             last_action = msg
             continue
 
-        selection = ui.pick_agent(agents, cwd_unregistered=cwd_unregistered)
+        selection = ui.pick_agent(
+            agents,
+            cwd_unregistered=cwd_unregistered,
+            expand_scratch=expand_scratch,
+        )
 
         if selection is None or selection == ui.ACTION_CANCEL:
             return
@@ -346,6 +419,19 @@ def run_picker(no_splash: bool = False) -> None:
             last_action = msg
             continue
 
+        if selection == ui.ACTION_NEW_SCRATCH:
+            msg = _scratch_via_picker()
+            ui.console.clear()
+            splash_shown = False
+            last_action = msg
+            continue
+
+        if selection == ui.ACTION_SHOW_ALL_SCRATCH:
+            # Flip the flag and re-render. No screen clear so the user
+            # stays oriented at the same scroll position.
+            expand_scratch = True
+            continue
+
         if selection == ui.ACTION_MANAGE:
             msg = _manage_flow(agents)
             ui.console.clear()
@@ -361,6 +447,20 @@ def run_picker(no_splash: bool = False) -> None:
         # User picked an actual agent — open it, then return to the picker.
         spawn.open_agent(selection["name"], selection["path"])
         last_action = f"Opened {selection['name']}"
+        # Collapse scratch back to last-10 on next render.
+        expand_scratch = False
+
+
+def _scratch_via_picker() -> str | None:
+    label = ui.prompt_scratch_label()
+    if label is None:
+        return None  # user cancelled at the prompt
+    label = label.strip()
+    agent = _create_scratch(label or None)
+    if agent is None:
+        return None
+    spawn.open_agent(agent["name"], agent["path"])
+    return f"Opened scratch '{agent['name']}'"
 
 
 def _create_agent_flow(default_path: str | None = None) -> str | None:
