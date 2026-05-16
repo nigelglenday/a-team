@@ -1,6 +1,6 @@
 # a-team
 
-![Version](https://img.shields.io/badge/version-0.2.0-orange) ![License](https://img.shields.io/badge/license-MIT-yellow) ![Python](https://img.shields.io/badge/python-3.11%2B-blue) ![Platform](https://img.shields.io/badge/platform-macOS-black) ![Ghostty](https://img.shields.io/badge/terminal-Ghostty-orange) ![Termpaper](https://img.shields.io/badge/suite-termpaper-cyan)
+![Version](https://img.shields.io/badge/version-0.2.0-orange) ![License](https://img.shields.io/badge/license-MIT-yellow) ![Python](https://img.shields.io/badge/python-3.11%2B-blue) ![Platform](https://img.shields.io/badge/platform-macOS-black) ![Ghostty](https://img.shields.io/badge/terminal-Ghostty-orange) ![Termpaper](https://img.shields.io/badge/set-termpaper-cyan)
 
 > *I love it when a plan comes together.*
 
@@ -121,7 +121,7 @@ Initial release. Picker, splash, categories, `new`/`rm`/`ls`/`all`, persistent v
 - **[skillbox](https://github.com/nigelglenday/skillbox)** — inventory and manage skills, slash commands, subagents
 - **[eagent](https://github.com/nigelglenday/eagent)** — multi-session executive assistant pattern, file-based messaging
 
-See [termpaper.dev](https://termpaper.dev) for the suite.
+See [termpaper.dev](https://termpaper.dev) for the set.
 
 ## License
 
