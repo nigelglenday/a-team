@@ -117,9 +117,9 @@ Title via OSC-0, then `cd`, then resume.
 
 Initial release. Picker, splash, categories, `new`/`rm`/`ls`/`all`, persistent vs. ephemeral kinds, AppleScript-driven Ghostty spawning.
 
-## Part of termpaper
+## Part of termpaper.dev
 
-`a-team` is one of four utilities for managing Claude Code state from the terminal:
+`a-team` is part of [termpaper.dev](https://termpaper.dev), a set of utilities for managing Claude Code state from the terminal:
 
 - **[a-team](https://github.com/nigelglenday/a-team)** — parallel sessions (this repo)
 - **[whispertty](https://github.com/nigelglenday/whispertty)** — record + transcribe + diarize audio
