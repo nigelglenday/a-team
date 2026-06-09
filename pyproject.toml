@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "a-team"
-version = "0.2.0"
+version = "0.3.0"
 description = "Parallel Claude Code session manager for Ghostty. I love it when a plan comes together."
 readme = "README.md"
 requires-python = ">=3.11"

@@ -1,6 +1,6 @@
 # a-team
 
-![Version](https://img.shields.io/badge/version-0.2.0-orange) ![License](https://img.shields.io/badge/license-MIT-yellow) ![Python](https://img.shields.io/badge/python-3.11%2B-blue) ![Platform](https://img.shields.io/badge/platform-macOS-black) ![Ghostty](https://img.shields.io/badge/terminal-Ghostty-orange) ![Termpaper](https://img.shields.io/badge/set-termpaper-cyan)
+![Version](https://img.shields.io/badge/version-0.3.0-orange) ![License](https://img.shields.io/badge/license-MIT-yellow) ![Python](https://img.shields.io/badge/python-3.11%2B-blue) ![Platform](https://img.shields.io/badge/platform-macOS-black) ![Ghostty](https://img.shields.io/badge/terminal-Ghostty-orange) ![Termpaper](https://img.shields.io/badge/set-termpaper-cyan)
 
 > *I love it when a plan comes together.*
 
@@ -92,6 +92,11 @@ printf '\e]0;<name>\a' && cd <path> && claude --continue
 Title via OSC-0, then `cd`, then resume.
 
 ## Changelog
+
+### 0.3.0 (2026-06-09)
+
+- **Multiple parallel chats per agent** — after picking an agent, choose "Resume latest chat" (Enter) or "Start a new chat" with an optional topic label. Lets you run different conversations on the same agent (e.g. Navigator: pricing + Navigator: onboarding) without them fighting over the same session UUID. New chats get a fresh `claude` session; the topic label is appended to the Ghostty window title so parallel windows are visually distinct.
+- **Picker no longer crashes when `getcwd()` returns EPERM** — macOS can deny `os.getcwd()` mid-session when a parent directory is renamed, permissions change, or iCloud evicts the folder. The picker now falls back to `~` instead of stack-tracing. `a-team here` catches the same error and prints a friendly message ("Try `cd ~` first") instead of crashing.
 
 ### 0.2.0 (2026-05-15)
 
