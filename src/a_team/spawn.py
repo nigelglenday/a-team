@@ -29,7 +29,7 @@ _BASH_COMMAND = (
     r"( while :; do printf '\\e]0;__NAME__\\a\\e]1;__NAME__\\a\\e]2;__NAME__\\a'; sleep 1; done ) & "
     r"TPID=$!; "
     r'trap \"kill $TPID 2>/dev/null\" EXIT INT TERM HUP; '
-    r"cd '__PATH__' && { claude --continue || claude; }; "
+    r"cd '__PATH__' && __CLAUDE_CMD__; "
     r"}"
 )
 
@@ -58,16 +58,41 @@ def _validate(name: str, path: str) -> None:
         raise ValueError(f"agent path cannot contain single quotes or newlines: {path!r}")
 
 
-def open_agent(name: str, path: str) -> None:
+def open_agent(
+    name: str,
+    path: str,
+    *,
+    fresh_chat: bool = False,
+    topic: str | None = None,
+) -> None:
     """Open a new Ghostty window for the agent.
 
     Spawns a Ghostty window, sets the title to `name` (and keeps it
     set via a re-emit loop so other programs can't clobber it), cd's
-    into `path`, and runs `claude --continue` to resume the most
-    recent session.
+    into `path`, and runs Claude Code.
+
+    By default resumes the most-recent session (`claude --continue`,
+    falling back to fresh if no session exists). Pass `fresh_chat=True`
+    to force a new session — useful for running multiple parallel
+    chats in the same folder on different topics.
+
+    `topic` is an optional label appended to the window title (e.g.
+    "Navigator: pricing") so parallel chats on the same agent are
+    visually distinguishable in Ghostty.
     """
     _validate(name, path)
-    bash = _BASH_COMMAND.replace("__NAME__", name).replace("__PATH__", path)
+    if topic:
+        _validate(topic, path)  # same quoting rules apply to title content
+        display_name = f"{name}: {topic}"
+    else:
+        display_name = name
+    claude_cmd = "claude" if fresh_chat else "{ claude --continue || claude; }"
+    bash = (
+        _BASH_COMMAND
+        .replace("__NAME__", display_name)
+        .replace("__PATH__", path)
+        .replace("__CLAUDE_CMD__", claude_cmd)
+    )
     script = _APPLESCRIPT_TEMPLATE.replace("__BASH_COMMAND__", bash)
     subprocess.run(["osascript", "-e", script], check=True)
 

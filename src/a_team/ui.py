@@ -231,6 +231,45 @@ def prompt_scratch_label() -> Optional[str]:
     ).ask()
 
 
+CHAT_MODE_RESUME = "resume"
+CHAT_MODE_NEW = "new"
+CHAT_MODE_CANCEL = "cancel"
+
+
+def prompt_chat_mode(agent_name: str) -> Optional[str]:
+    """Ask whether to resume the latest chat or start a fresh one.
+
+    Returns one of CHAT_MODE_RESUME / CHAT_MODE_NEW / CHAT_MODE_CANCEL, or
+    None on Esc / Ctrl-C. Resume is the default — enter on the highlighted
+    row keeps the existing behavior.
+    """
+    return questionary.select(
+        f"How should we start {agent_name}?",
+        choices=[
+            questionary.Choice(title="Resume latest chat", value=CHAT_MODE_RESUME),
+            questionary.Choice(title="Start a new chat", value=CHAT_MODE_NEW),
+            questionary.Choice(title="Cancel", value=CHAT_MODE_CANCEL),
+        ],
+        default=CHAT_MODE_RESUME,
+        style=_picker_style,
+        use_jk_keys=False,
+    ).ask()
+
+
+def prompt_chat_topic() -> Optional[str]:
+    """Ask for an optional topic label for a new chat.
+
+    Used to disambiguate parallel chats on the same agent (e.g. "pricing"
+    vs "onboarding"). The label is appended to the Ghostty window title so
+    you can tell windows apart at a glance. Returns the entered string
+    (possibly empty), or None on cancel.
+    """
+    return questionary.text(
+        "Topic label (optional, press Enter for none):",
+        style=_picker_style,
+    ).ask()
+
+
 def prompt_new_agent(
     default_path: Optional[str] = None,
     existing_categories: Optional[list[str]] = None,

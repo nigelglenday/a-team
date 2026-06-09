@@ -121,7 +121,11 @@ def here_cmd(name: str | None, ephemeral: bool, category: str | None) -> None:
         cd ~/Documents/some-project && a-team here
         cd ~/Documents/some-project && a-team here MyAgent -c Work
     """
-    cwd = os.getcwd()
+    try:
+        cwd = os.getcwd()
+    except OSError as e:
+        ui.error(f"Can't read current directory ({e}). Try `cd ~` first.")
+        sys.exit(1)
     if name is None:
         name = Path(cwd).name
     kind = "ephemeral" if ephemeral else "persistent"
@@ -372,7 +376,13 @@ def run_picker(no_splash: bool = False) -> None:
 
     while True:
         agents = config.load_agents()
-        cwd = os.getcwd()
+        # macOS can return EPERM from getcwd() when the cwd's parent permissions
+        # change mid-session, the dir is renamed, or iCloud evicts it. Fall back
+        # to home rather than crash the picker loop.
+        try:
+            cwd = os.getcwd()
+        except OSError:
+            cwd = str(Path.home())
         is_home = cwd == str(Path.home())
         cwd_unregistered = (
             bool(agents) and not config.is_path_registered(cwd) and not is_home
@@ -444,9 +454,26 @@ def run_picker(no_splash: bool = False) -> None:
             splash_shown = False  # screen was cleared; re-show splash
             continue
 
-        # User picked an actual agent — open it, then return to the picker.
-        spawn.open_agent(selection["name"], selection["path"])
-        last_action = f"Opened {selection['name']}"
+        # User picked an actual agent — ask resume vs fresh chat, then open.
+        mode = ui.prompt_chat_mode(selection["name"])
+        if mode is None or mode == ui.CHAT_MODE_CANCEL:
+            # Cancelled the sub-prompt; loop back to the picker without opening.
+            continue
+        topic: str | None = None
+        if mode == ui.CHAT_MODE_NEW:
+            topic_input = ui.prompt_chat_topic()
+            if topic_input is None:
+                continue  # cancelled
+            topic = topic_input.strip() or None
+        spawn.open_agent(
+            selection["name"],
+            selection["path"],
+            fresh_chat=(mode == ui.CHAT_MODE_NEW),
+            topic=topic,
+        )
+        label = f"{selection['name']}: {topic}" if topic else selection["name"]
+        suffix = " (new chat)" if mode == ui.CHAT_MODE_NEW else ""
+        last_action = f"Opened {label}{suffix}"
         # Collapse scratch back to last-10 on next render.
         expand_scratch = False
 
