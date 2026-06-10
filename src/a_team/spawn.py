@@ -44,6 +44,12 @@ tell application "System Events"
 end tell
 delay 0.5
 tell application "System Events"
+    -- Clear any text the restored shell may have buffered at the
+    -- prompt (Ghostty sometimes restores the prior session's typed-
+    -- but-unsubmitted characters). Ctrl-U deletes from cursor to
+    -- beginning of line in both zsh and bash.
+    keystroke "u" using control down
+    delay 0.05
     keystroke "__BASH_COMMAND__"
     key code 36
 end tell
