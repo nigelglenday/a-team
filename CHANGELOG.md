@@ -4,6 +4,10 @@ All notable changes to `a-team` are documented here.
 
 This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-06-10
+
+- **Fix: clear restored Ghostty prompt buffer before keystroking the launcher command.** Ghostty sometimes restores the prior session's typed-but-unsubmitted characters at the new window's prompt (visible as e.g. `to %` on the prompt line after `Last login: ...`). When the launcher then typed the title-spinner bash command, the buffered text got prepended and zsh parsed `to { ( while ...` as command name `to` followed by an opening brace group, failing at `do` inside the while loop and leaving the new session unlaunched. Now sends Ctrl-U (delete-to-beginning-of-line in both zsh and bash) before typing the command.
+
 ## [0.3.0] - 2026-06-09
 
 - **Multiple parallel chats per agent** — after picking an agent, choose "Resume latest chat" (Enter) or "Start a new chat" with an optional topic label. Lets you run different conversations on the same agent (e.g. Navigator: pricing + Navigator: onboarding) without them fighting over the same session UUID. New chats get a fresh `claude` session; the topic label is appended to the Ghostty window title so parallel windows are visually distinct.
