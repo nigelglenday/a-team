@@ -6,7 +6,7 @@ This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0
 
 ## [0.3.0] - 2026-06-09
 
-- **Multiple parallel chats per agent** — after picking an agent, choose "Resume latest chat" (Enter) or "Start a new chat" with an optional topic label. Lets you run different conversations on the same agent (e.g. Navigator: pricing + Navigator: onboarding) without them fighting over the same session UUID. New chats get a fresh `claude` session; the topic label is appended to the Ghostty window title so parallel windows are visually distinct.
+- **Multiple parallel chats per agent** — after picking an agent, choose "Resume latest chat" (Enter) or "Start a new chat" with an optional topic label. Lets you run different conversations on the same agent (e.g. `myproject: pricing` + `myproject: onboarding`) without them fighting over the same session UUID. New chats get a fresh `claude` session; the topic label is appended to the Ghostty window title so parallel windows are visually distinct.
 - **Picker no longer crashes when `getcwd()` returns EPERM** — macOS can deny `os.getcwd()` mid-session when a parent directory is renamed, permissions change, or iCloud evicts the folder. The picker now falls back to `~` instead of stack-tracing. `a-team here` catches the same error and prints a friendly message ("Try `cd ~` first") instead of crashing.
 
 ## [0.2.0] - 2026-05-15
