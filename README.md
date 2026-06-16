@@ -54,6 +54,14 @@ a-team ls                       plain list, pipe-friendly
 
 The picker also surfaces `+ Create new agent` and `- Manage` so you rarely touch a config file.
 
+When you open an agent, a-team asks how to start it:
+
+- **Continue last session** (`claude --continue`) — resume the most recent conversation (default)
+- **New session** (`claude`) — start fresh, with an optional topic label for parallel chats
+- **Resume a past session…** (`claude --resume`) — opens Claude Code's own session picker in the new window, so you can pick a specific earlier conversation
+
+Agents that run on a non-default Claude account are badged in the picker (e.g. `⟨mw⟩`). `a-team new` / `a-team here` take `--account <name>` to set one explicitly; otherwise the account follows the category rule (see Config).
+
 ## Config
 
 `~/.config/a-team/agents.toml`. Hand-edit for bulk import.
@@ -81,15 +89,24 @@ kind = "ephemeral"
 
 `category` groups agents in the picker. Order in the file = order in the picker.
 
+### Accounts
+
+Each agent can run under a different Claude login, selected by `CLAUDE_CONFIG_DIR` (each config dir holds its own account login). Define account profiles and an optional category→account rule:
+
+```toml
+[accounts]
+personal = ""            # "" = the default ~/.claude
+mw = "~/.claude-mw"
+
+[account_by_category]
+Masterworks = "mw"
+```
+
+An agent's account resolves as: an explicit `account = "mw"` on the agent → the category rule → `personal`. So a `category = "Masterworks"` agent runs on the `mw` profile automatically; set `account` on an individual agent to override (e.g. force one back to `personal`). To set a profile up, run `CLAUDE_CONFIG_DIR=~/.claude-mw claude` once and `/login`. (`personal` and `Masterworks → mw` ship as built-in defaults; the tables above only override them.)
+
 ## How it spawns windows
 
-Ghostty has no `+new-window` CLI on macOS, so `a-team` drives the GUI via AppleScript. Each spawn activates Ghostty, clicks New Window, then keystrokes:
-
-```
-printf '\e]0;<name>\a' && cd <path> && claude --continue
-```
-
-Title via OSC-0, then `cd`, then resume.
+Ghostty has no `+new-window` CLI on macOS, so `a-team` opens a window in the running Ghostty instance via the File → New Window menu (AppleScript), then delivers the launch command by **clipboard paste** rather than keystroking it — System Events drops characters on long strings, which mangles the command. The pasted command re-emits the title via OSC-0 on a loop, exports `CLAUDE_CONFIG_DIR` for the agent's account, `cd`s into the folder, and runs claude (`--continue`, `--resume`, or fresh, per your choice).
 
 ## Changelog
 

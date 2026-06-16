@@ -4,6 +4,12 @@ All notable changes to `a-team` are documented here.
 
 This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-06-16
+
+- **Per-agent Claude account.** An agent can run under a different Claude login, selected by `CLAUDE_CONFIG_DIR` (each config dir holds its own account). Account resolves as: explicit `account` on the agent → a category→account rule → `personal`. `personal` and `Masterworks → mw` ship as defaults; both maps are overridable via `[accounts]` and `[account_by_category]` in `agents.toml`. The picker badges non-personal agents (e.g. `⟨mw⟩`), `a-team new` / `a-team here` accept `--account`, and the interactive new-agent flow asks for it (defaulting to the category's account).
+- **New / Continue / Resume session selection.** Opening an agent now offers, in Claude's standard language: **Continue last session** (`claude --continue`, default), **New session** (`claude`), or **Resume a past session…** which launches Claude Code's own session picker (`claude --resume`) in the new window. Lets you pick a specific earlier conversation from a-team instead of opening a window and typing `/resume`.
+- **Reliable window spawn.** Replaced keystroking the whole launch command (System Events silently dropped characters — notably spaces — on long strings, leaving the new window at a mangled, unrun prompt) with opening the window via the File → New Window menu and delivering the command by clipboard paste (atomic, no length limit, no AppleScript escaping). The clipboard is saved and restored around the paste.
+
 ## [0.3.1] - 2026-06-10
 
 - **Fix: clear restored Ghostty prompt buffer before keystroking the launcher command.** Ghostty sometimes restores the prior session's typed-but-unsubmitted characters at the new window's prompt (visible as e.g. `to %` on the prompt line after `Last login: ...`). When the launcher then typed the title-spinner bash command, the buffered text got prepended and zsh parsed `to { ( while ...` as command name `to` followed by an opening brace group, failing at `do` inside the while loop and leaving the new session unlaunched. Now sends Ctrl-U (delete-to-beginning-of-line in both zsh and bash) before typing the command.
