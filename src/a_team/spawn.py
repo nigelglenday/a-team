@@ -1,106 +1,133 @@
-"""Spawn Ghostty windows running Claude Code via AppleScript.
+"""Spawn Ghostty windows running Claude Code.
 
-Ghostty's `+new-window` CLI is unsupported on macOS, so we drive the
-GUI via AppleScript "System Events" — same pattern as the existing
-Launchpad-style .app bundles.
+Approach: open a new window in the *existing* Ghostty instance via the
+File > New Window menu (AppleScript / System Events), then deliver the
+launch command by **clipboard paste** (Cmd-V), not by keystroking it.
 
-Title persistence: Claude Code (and other apps) frequently emit their
-own OSC-0 title sequences, which would clobber a one-time printf at
-the start. To keep the agent name visible, we spawn a background loop
-that re-emits the OSC-0 sequence every second. A trap on the parent
-shell cleans it up when claude exits or the window is closed.
+Why not keystroke the command (the old approach): System Events
+`keystroke` types faster than a GPU terminal absorbs on long strings and
+silently drops characters — notably spaces — mangling the command into
+something bash can't parse (`trap"kill$TPID..."`, `cd'...'&&claude`). It's
+also racy. Pasting is atomic: the whole command lands intact regardless
+of length.
+
+Why not `open -na Ghostty.app --args -e <cmd>` (native launch): it works
+and needs no accessibility, but on macOS each call spawns a *separate*
+Ghostty instance (no single-instance option exists), which fragments a
+session manager that opens many windows. The menu approach keeps every
+agent window in one instance.
+
+The command itself is set on the clipboard with `pbcopy` (via stdin), so
+it never passes through AppleScript string escaping — no quoting layers
+to get wrong. The clipboard is saved and restored around the paste.
+
+Title persistence: claude emits its own OSC-0 title sequences, which
+would clobber a one-time printf. A backgrounded loop re-emits the agent
+name every second; a trap kills it when claude exits or the window closes.
 """
 
+import shlex
 import subprocess
 import time
 
-# Bash command keystroked into the new Ghostty window. The grouped
-# command:
-#   1. Backgrounds a loop that re-emits OSC-0 every second so other
-#      programs (e.g., claude) can't permanently clobber the title
-#   2. Stores its PID and traps EXIT/HUP/INT/TERM to kill it on cleanup
-#   3. cd's into the agent folder
-#   4. Runs claude --continue
-#
-# Raw strings throughout so the `\e`, `\a`, and `\"` characters survive
-# Python → AppleScript → terminal as literal `\e`, `\a`, and `"`.
-_BASH_COMMAND = (
-    r"{ "
-    r"( while :; do printf '\\e]0;__NAME__\\a\\e]1;__NAME__\\a\\e]2;__NAME__\\a'; sleep 1; done ) & "
-    r"TPID=$!; "
-    r'trap \"kill $TPID 2>/dev/null\" EXIT INT TERM HUP; '
-    r"cd '__PATH__' && __CLAUDE_CMD__; "
-    r"}"
-)
 
-_APPLESCRIPT_TEMPLATE = r'''
-tell application "Ghostty"
-    activate
-end tell
+_APPLESCRIPT = r'''
+tell application "Ghostty" to activate
 tell application "System Events"
     tell process "Ghostty"
         click menu item "New Window" of menu "File" of menu bar 1
     end tell
 end tell
-delay 0.5
+delay 0.6
 tell application "System Events"
-    -- Clear any text the restored shell may have buffered at the
-    -- prompt (Ghostty sometimes restores the prior session's typed-
-    -- but-unsubmitted characters). Ctrl-U deletes from cursor to
-    -- beginning of line in both zsh and bash.
+    -- Clear anything the restored shell may have buffered at the prompt,
+    -- then paste the launch command and submit it.
     keystroke "u" using control down
     delay 0.05
-    keystroke "__BASH_COMMAND__"
+    keystroke "v" using command down
+    delay 0.15
     key code 36
 end tell
 '''
 
 
 def _validate(name: str, path: str) -> None:
-    """Reject inputs that would break AppleScript or bash quoting."""
-    if any(ch in name for ch in ('"', "\\", "\n", "\r")):
-        raise ValueError(f"agent name cannot contain quotes, backslashes, or newlines: {name!r}")
+    """Reject inputs that would break the launch command's quoting."""
+    if any(ch in name for ch in ("'", "\n", "\r")):
+        raise ValueError(f"agent name cannot contain single quotes or newlines: {name!r}")
     if any(ch in path for ch in ("'", "\n", "\r")):
         raise ValueError(f"agent path cannot contain single quotes or newlines: {path!r}")
+
+
+def _build_command(
+    display_name: str, path: str, claude_cmd: str, config_dir: str | None = None
+) -> str:
+    r"""The plain bash command pasted into the new window. Single backslashes
+    (``\\e``, ``\\a`` in source -> literal ``\e``, ``\a``) so printf emits real escapes.
+
+    If `config_dir` is given, export CLAUDE_CONFIG_DIR first so the session (and
+    the claude it launches) runs under that account's login."""
+    seq = f"\\e]0;{display_name}\\a\\e]1;{display_name}\\a\\e]2;{display_name}\\a"
+    env = f"export CLAUDE_CONFIG_DIR={shlex.quote(config_dir)}; " if config_dir else ""
+    return (
+        "{ "
+        f"{env}"
+        f"( while :; do printf '{seq}'; sleep 1; done ) & "
+        "TPID=$!; "
+        'trap "kill $TPID 2>/dev/null" EXIT INT TERM HUP; '
+        f"cd {shlex.quote(path)} && {claude_cmd}; "
+        "}"
+    )
 
 
 def open_agent(
     name: str,
     path: str,
     *,
-    fresh_chat: bool = False,
+    session_mode: str = "continue",
     topic: str | None = None,
+    config_dir: str | None = None,
 ) -> None:
     """Open a new Ghostty window for the agent.
 
-    Spawns a Ghostty window, sets the title to `name` (and keeps it
-    set via a re-emit loop so other programs can't clobber it), cd's
-    into `path`, and runs Claude Code.
-
-    By default resumes the most-recent session (`claude --continue`,
-    falling back to fresh if no session exists). Pass `fresh_chat=True`
-    to force a new session — useful for running multiple parallel
-    chats in the same folder on different topics.
-
-    `topic` is an optional label appended to the window title (e.g.
-    "Navigator: pricing") so parallel chats on the same agent are
-    visually distinguishable in Ghostty.
+    Opens a window in the running Ghostty instance, sets the title to
+    `name` (kept set via a re-emit loop), cd's into `path`, and runs
+    Claude Code. `session_mode` selects how claude starts:
+      - "continue": resume the most-recent session (`claude --continue`, fresh fallback)
+      - "new":      a fresh session (`claude`)
+      - "resume":   Claude's own past-session picker (`claude --resume`, fresh fallback)
+    `topic` is an optional label appended to the window title. `config_dir`
+    selects the Claude account (CLAUDE_CONFIG_DIR); None = personal.
     """
     _validate(name, path)
     if topic:
-        _validate(topic, path)  # same quoting rules apply to title content
+        _validate(topic, path)
         display_name = f"{name}: {topic}"
     else:
         display_name = name
-    claude_cmd = "claude" if fresh_chat else "{ claude --continue || claude; }"
-    bash = (
-        _BASH_COMMAND
-        .replace("__NAME__", display_name)
-        .replace("__PATH__", path)
-        .replace("__CLAUDE_CMD__", claude_cmd)
-    )
-    script = _APPLESCRIPT_TEMPLATE.replace("__BASH_COMMAND__", bash)
-    subprocess.run(["osascript", "-e", script], check=True)
+    claude_cmd = {
+        "new": "claude",
+        "continue": "{ claude --continue || claude; }",
+        "resume": "{ claude --resume || claude; }",
+    }.get(session_mode, "{ claude --continue || claude; }")
+    command = _build_command(display_name, path, claude_cmd, config_dir)
+
+    # Save the clipboard, set our command, paste it, restore. pbcopy via stdin
+    # means the command never hits AppleScript escaping.
+    try:
+        prev = subprocess.run(["pbpaste"], capture_output=True).stdout
+    except Exception:
+        prev = b""
+    subprocess.run(["pbcopy"], input=command.encode(), check=True)
+    try:
+        subprocess.run(["osascript", "-e", _APPLESCRIPT], check=True)
+    finally:
+        # Restore the user's clipboard (best-effort; the paste has already
+        # been consumed by the time osascript returns).
+        try:
+            subprocess.run(["pbcopy"], input=prev, check=False)
+        except Exception:
+            pass
 
 
 def open_all(agents: list[dict], delay_between: float = 1.0) -> None:
