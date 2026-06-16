@@ -102,6 +102,55 @@ def get_default_parent() -> Path | None:
     return p if p.is_dir() else None
 
 
+# ---------------------------------------------------------------------------
+# Accounts (which Claude login a session runs under)
+# ---------------------------------------------------------------------------
+#
+# A session's Claude account is selected by CLAUDE_CONFIG_DIR: each config dir
+# holds its own login (keychain credential keyed by a hash of the dir). The
+# default ("" / personal) uses ~/.claude. Resolution order for an agent:
+#   explicit per-agent `account` field  ->  category rule  ->  "personal".
+# Both maps below can be overridden by [accounts] / [account_by_category]
+# tables in agents.toml.
+
+_DEFAULT_ACCOUNTS = {
+    "personal": "",  # "" => default ~/.claude (no CLAUDE_CONFIG_DIR)
+    "mw": str(Path.home() / ".claude-mw"),
+}
+_DEFAULT_ACCOUNT_BY_CATEGORY = {
+    "Masterworks": "mw",
+}
+
+
+def load_accounts() -> dict:
+    """Account name -> CLAUDE_CONFIG_DIR. Defaults merged with agents.toml [accounts]."""
+    return {**_DEFAULT_ACCOUNTS, **_load_raw().get("accounts", {})}
+
+
+def load_account_by_category() -> dict:
+    """Category -> account name. Defaults merged with agents.toml [account_by_category]."""
+    return {**_DEFAULT_ACCOUNT_BY_CATEGORY, **_load_raw().get("account_by_category", {})}
+
+
+def resolve_account(agent: dict) -> str:
+    """Account name for an agent: explicit override -> category rule -> 'personal'."""
+    explicit = agent.get("account")
+    if explicit:
+        return explicit
+    cat = agent.get("category")
+    if cat:
+        mapped = load_account_by_category().get(cat)
+        if mapped:
+            return mapped
+    return "personal"
+
+
+def resolve_config_dir(agent: dict) -> str | None:
+    """CLAUDE_CONFIG_DIR for an agent's account, or None for personal/default."""
+    raw = load_accounts().get(resolve_account(agent), "")
+    return str(Path(raw).expanduser()) if raw else None
+
+
 def find_agent(name: str) -> dict | None:
     """Return the agent dict with the given name, or None."""
     for a in load_agents():
@@ -115,9 +164,11 @@ def add_agent(
     path: str,
     kind: AgentKind = "persistent",
     category: str | None = None,
+    account: str | None = None,
 ) -> dict:
     """Append a new agent. Raises ValueError if name already exists or
-    path doesn't exist."""
+    path doesn't exist. `account` is stored only as an explicit override; leave
+    it None to let the category rule decide the Claude account."""
     if find_agent(name):
         raise ValueError(f"agent '{name}' already exists")
     resolved = Path(path).expanduser().resolve()
@@ -128,6 +179,8 @@ def add_agent(
     agent: dict = {"name": name, "path": str(resolved), "kind": kind}
     if category:
         agent["category"] = category
+    if account:
+        agent["account"] = account
     agents.append(agent)
     save_agents(agents)
     return agent

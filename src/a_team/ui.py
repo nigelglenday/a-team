@@ -86,8 +86,14 @@ def _short_path(path: str, max_len: int = 60) -> str:
 
 
 def _format_agent_row(agent: dict, name_width: int) -> str:
+    from .config import resolve_account
+
     name = agent["name"]
-    return f"  {name:<{name_width}}  {_short_path(agent['path'])}"
+    acct = resolve_account(agent)
+    # Badge non-personal accounts so it's obvious which login a session uses;
+    # personal (the default) stays unbadged. Fixed width keeps the path aligned.
+    badge = "" if acct == "personal" else f"⟨{acct}⟩"
+    return f"  {name:<{name_width}}  {badge:<8}{_short_path(agent['path'])}"
 
 
 _UNCATEGORIZED = "Other"
@@ -231,26 +237,29 @@ def prompt_scratch_label() -> Optional[str]:
     ).ask()
 
 
-CHAT_MODE_RESUME = "resume"
-CHAT_MODE_NEW = "new"
+CHAT_MODE_CONTINUE = "continue"  # claude --continue (most recent)
+CHAT_MODE_RESUME = "resume"      # claude --resume (pick from past sessions)
+CHAT_MODE_NEW = "new"            # claude (fresh)
 CHAT_MODE_CANCEL = "cancel"
 
 
 def prompt_chat_mode(agent_name: str) -> Optional[str]:
-    """Ask whether to resume the latest chat or start a fresh one.
+    """Ask how to start the agent: continue the most recent session, start a new
+    one, or pick from past sessions (Claude's own `--resume` picker).
 
-    Returns one of CHAT_MODE_RESUME / CHAT_MODE_NEW / CHAT_MODE_CANCEL, or
-    None on Esc / Ctrl-C. Resume is the default — enter on the highlighted
-    row keeps the existing behavior.
+    Returns one of CHAT_MODE_CONTINUE / CHAT_MODE_NEW / CHAT_MODE_RESUME /
+    CHAT_MODE_CANCEL, or None on Esc / Ctrl-C. Continue is the default — enter on
+    the highlighted row keeps the prior behavior.
     """
     return questionary.select(
         f"How should we start {agent_name}?",
         choices=[
-            questionary.Choice(title="Resume latest chat", value=CHAT_MODE_RESUME),
-            questionary.Choice(title="Start a new chat", value=CHAT_MODE_NEW),
+            questionary.Choice(title="Continue last session", value=CHAT_MODE_CONTINUE),
+            questionary.Choice(title="New session", value=CHAT_MODE_NEW),
+            questionary.Choice(title="Resume a past session…", value=CHAT_MODE_RESUME),
             questionary.Choice(title="Cancel", value=CHAT_MODE_CANCEL),
         ],
-        default=CHAT_MODE_RESUME,
+        default=CHAT_MODE_CONTINUE,
         style=_picker_style,
         use_jk_keys=False,
     ).ask()
@@ -345,12 +354,39 @@ def prompt_new_agent(
             return None
         category = category.strip()
 
-    return {
+    # Account: which Claude login the session runs under. Default to the
+    # category's mapped account so the common case (e.g. Masterworks -> mw) is
+    # one keypress. We only persist `account` when it's an override of what the
+    # category rule already implies, keeping the registry clean.
+    from .config import load_account_by_category, load_accounts
+
+    accounts = list(load_accounts().keys())
+    category_default = (load_account_by_category().get(category) if category else None) or "personal"
+    account_choices = [
+        questionary.Choice(
+            title=(f"{a}  ·  default for this category" if a == category_default else a),
+            value=a,
+        )
+        for a in accounts
+    ]
+    account = questionary.select(
+        "Account:",
+        choices=account_choices,
+        default=next((c for c in account_choices if c.value == category_default), None),
+        style=_picker_style,
+    ).ask()
+    if account is None:
+        return None
+
+    result = {
         "name": name,
         "path": path,
         "kind": kind,
         "category": category,
     }
+    if account != category_default:
+        result["account"] = account  # explicit override
+    return result
 
 
 def _clipboard_path_or_empty() -> str:
