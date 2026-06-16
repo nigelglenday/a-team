@@ -17,7 +17,7 @@ Manage parallel Claude Code sessions in Ghostty. One command brings them all bac
 
 ## What it is
 
-An "agent" is a Claude Code session in a folder with a name. `a-team` keeps a registry, lets you pick one to open, and restores all of them at once.
+An "agent" is a named Claude Code session in a folder. `a-team` keeps a registry of them grouped by category, opens any one (new, continued, or resumed from its past sessions) under that agent's Claude account, and brings them all back after a reboot.
 
 Requires macOS, Ghostty, Claude Code, and Python 3.11+.
 
@@ -60,7 +60,7 @@ When you open an agent, a-team asks how to start it:
 - **New session** (`claude`) — start fresh, with an optional topic label for parallel chats
 - **Resume a past session…** (`claude --resume`) — opens Claude Code's own session picker in the new window, so you can pick a specific earlier conversation
 
-Agents that run on a non-default Claude account are badged in the picker (e.g. `⟨mw⟩`). `a-team new` / `a-team here` take `--account <name>` to set one explicitly; otherwise the account follows the category rule (see Config).
+Agents that run on a non-default Claude account are badged in the picker (e.g. `⟨work⟩`). `a-team new` / `a-team here` take `--account <name>` to set one explicitly; otherwise the account follows the category rule (see Config).
 
 ## Config
 
@@ -95,14 +95,14 @@ Each agent can run under a different Claude login, selected by `CLAUDE_CONFIG_DI
 
 ```toml
 [accounts]
-personal = ""            # "" = the default ~/.claude
-mw = "~/.claude-mw"
+personal = ""              # "" = the default ~/.claude
+work = "~/.claude-work"
 
 [account_by_category]
-Masterworks = "mw"
+Work = "work"
 ```
 
-An agent's account resolves as: an explicit `account = "mw"` on the agent → the category rule → `personal`. So a `category = "Masterworks"` agent runs on the `mw` profile automatically; set `account` on an individual agent to override (e.g. force one back to `personal`). To set a profile up, run `CLAUDE_CONFIG_DIR=~/.claude-mw claude` once and `/login`. (`personal` and `Masterworks → mw` ship as built-in defaults; the tables above only override them.)
+An agent's account resolves as: an explicit `account = "work"` on the agent → the category rule → `personal`. So with the rule above, a `category = "Work"` agent runs on the `work` profile automatically; set `account` on an individual agent to override (e.g. force one back to `personal`). To set a profile up, run `CLAUDE_CONFIG_DIR=~/.claude-work claude` once and `/login`. Only `personal` ships as a built-in default; define any other profiles and rules in the tables above.
 
 ## How it spawns windows
 

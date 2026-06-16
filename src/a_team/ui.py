@@ -355,7 +355,7 @@ def prompt_new_agent(
         category = category.strip()
 
     # Account: which Claude login the session runs under. Default to the
-    # category's mapped account so the common case (e.g. Masterworks -> mw) is
+    # category's mapped account so the common case (e.g. Work -> work) is
     # one keypress. We only persist `account` when it's an override of what the
     # category rule already implies, keeping the registry clean.
     from .config import load_account_by_category, load_accounts
