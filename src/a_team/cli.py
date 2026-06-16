@@ -110,7 +110,7 @@ def all_cmd(ctx: click.Context) -> None:
 @click.argument("name", required=False, default=None)
 @click.option("--ephemeral", is_flag=True, help="Mark as ephemeral (excluded from `a-team all`).")
 @click.option("--category", "-c", default=None, help="Category for grouping in the picker.")
-@click.option("--account", default=None, help="Claude account override (e.g. 'mw'). Omit to use the category's default.")
+@click.option("--account", default=None, help="Claude account override (e.g. 'work'). Omit to use the category's default.")
 def here_cmd(name: str | None, ephemeral: bool, category: str | None, account: str | None) -> None:
     """Register the current working directory as an agent.
 
@@ -208,7 +208,7 @@ def scratch_cmd(label: str | None) -> None:
 @click.argument("path", required=False, default=None)
 @click.option("--ephemeral", is_flag=True, help="Mark as ephemeral (excluded from `a-team all`).")
 @click.option("--category", "-c", default=None, help="Category for grouping in the picker.")
-@click.option("--account", default=None, help="Claude account override (e.g. 'mw'). Omit to use the category's default.")
+@click.option("--account", default=None, help="Claude account override (e.g. 'work'). Omit to use the category's default.")
 def new_cmd(name: str, path: str | None, ephemeral: bool, category: str | None, account: str | None) -> None:
     """Register a new agent.
 
