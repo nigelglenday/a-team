@@ -65,7 +65,7 @@ class AteamGroup(click.Group):
                     "[soft]Run `a-team ls` to see registered agents.[/soft]"
                 )
                 sys.exit(1)
-            spawn.open_agent(agent["name"], agent["path"])
+            spawn.open_agent(agent["name"], agent["path"], config_dir=config.resolve_config_dir(agent))
 
         return shortcut
 
@@ -110,7 +110,8 @@ def all_cmd(ctx: click.Context) -> None:
 @click.argument("name", required=False, default=None)
 @click.option("--ephemeral", is_flag=True, help="Mark as ephemeral (excluded from `a-team all`).")
 @click.option("--category", "-c", default=None, help="Category for grouping in the picker.")
-def here_cmd(name: str | None, ephemeral: bool, category: str | None) -> None:
+@click.option("--account", default=None, help="Claude account override (e.g. 'mw'). Omit to use the category's default.")
+def here_cmd(name: str | None, ephemeral: bool, category: str | None, account: str | None) -> None:
     """Register the current working directory as an agent.
 
     Name defaults to the directory's basename if omitted. Useful for adding
@@ -130,7 +131,7 @@ def here_cmd(name: str | None, ephemeral: bool, category: str | None) -> None:
         name = Path(cwd).name
     kind = "ephemeral" if ephemeral else "persistent"
     try:
-        agent = config.add_agent(name, cwd, kind=kind, category=category)
+        agent = config.add_agent(name, cwd, kind=kind, category=category, account=account)
     except ValueError as e:
         ui.error(str(e))
         sys.exit(1)
@@ -199,7 +200,7 @@ def scratch_cmd(label: str | None) -> None:
     if agent is None:
         sys.exit(1)
     ui.info(f"Created scratch '{agent['name']}' → {agent['path']}")
-    spawn.open_agent(agent["name"], agent["path"])
+    spawn.open_agent(agent["name"], agent["path"], config_dir=config.resolve_config_dir(agent))
 
 
 @cli.command("new")
@@ -207,7 +208,8 @@ def scratch_cmd(label: str | None) -> None:
 @click.argument("path", required=False, default=None)
 @click.option("--ephemeral", is_flag=True, help="Mark as ephemeral (excluded from `a-team all`).")
 @click.option("--category", "-c", default=None, help="Category for grouping in the picker.")
-def new_cmd(name: str, path: str | None, ephemeral: bool, category: str | None) -> None:
+@click.option("--account", default=None, help="Claude account override (e.g. 'mw'). Omit to use the category's default.")
+def new_cmd(name: str, path: str | None, ephemeral: bool, category: str | None, account: str | None) -> None:
     """Register a new agent.
 
     PATH lookup order if omitted:
@@ -221,7 +223,7 @@ def new_cmd(name: str, path: str | None, ephemeral: bool, category: str | None) 
 
     kind = "ephemeral" if ephemeral else "persistent"
     try:
-        agent = config.add_agent(name, resolved, kind=kind, category=category)
+        agent = config.add_agent(name, resolved, kind=kind, category=category, account=account)
     except ValueError as e:
         ui.error(str(e))
         sys.exit(1)
@@ -465,14 +467,20 @@ def run_picker(no_splash: bool = False) -> None:
             if topic_input is None:
                 continue  # cancelled
             topic = topic_input.strip() or None
+        session_mode = {
+            ui.CHAT_MODE_NEW: "new",
+            ui.CHAT_MODE_CONTINUE: "continue",
+            ui.CHAT_MODE_RESUME: "resume",
+        }.get(mode, "continue")
         spawn.open_agent(
             selection["name"],
             selection["path"],
-            fresh_chat=(mode == ui.CHAT_MODE_NEW),
+            session_mode=session_mode,
             topic=topic,
+            config_dir=config.resolve_config_dir(selection),
         )
         label = f"{selection['name']}: {topic}" if topic else selection["name"]
-        suffix = " (new chat)" if mode == ui.CHAT_MODE_NEW else ""
+        suffix = {"new": " (new chat)", "resume": " (resume)"}.get(session_mode, "")
         last_action = f"Opened {label}{suffix}"
         # Collapse scratch back to last-10 on next render.
         expand_scratch = False
@@ -486,7 +494,7 @@ def _scratch_via_picker() -> str | None:
     agent = _create_scratch(label or None)
     if agent is None:
         return None
-    spawn.open_agent(agent["name"], agent["path"])
+    spawn.open_agent(agent["name"], agent["path"], config_dir=config.resolve_config_dir(agent))
     return f"Opened scratch '{agent['name']}'"
 
 
@@ -519,6 +527,7 @@ def _create_agent_flow(default_path: str | None = None) -> str | None:
             str(p),
             kind=new["kind"],
             category=new.get("category"),
+            account=new.get("account"),
         )
     except ValueError as e:
         ui.error(str(e))
@@ -534,7 +543,7 @@ def _create_agent_flow(default_path: str | None = None) -> str | None:
         style=questionary.Style([("question", "bold"), ("pointer", "fg:#ff8800")]),
     ).ask()
     if open_now:
-        spawn.open_agent(agent["name"], agent["path"])
+        spawn.open_agent(agent["name"], agent["path"], config_dir=config.resolve_config_dir(agent))
 
 
 def _manage_flow(agents: list[dict]) -> str | None:
