@@ -110,16 +110,17 @@ def get_default_parent() -> Path | None:
 # holds its own login (keychain credential keyed by a hash of the dir). The
 # default ("" / personal) uses ~/.claude. Resolution order for an agent:
 #   explicit per-agent `account` field  ->  category rule  ->  "personal".
-# Both maps below can be overridden by [accounts] / [account_by_category]
-# tables in agents.toml.
+# Define your own profiles + rules with [accounts] / [account_by_category]
+# tables in agents.toml, e.g.:
+#   [accounts]
+#   work = "~/.claude-work"
+#   [account_by_category]
+#   Work = "work"
 
 _DEFAULT_ACCOUNTS = {
     "personal": "",  # "" => default ~/.claude (no CLAUDE_CONFIG_DIR)
-    "mw": str(Path.home() / ".claude-mw"),
 }
-_DEFAULT_ACCOUNT_BY_CATEGORY = {
-    "Masterworks": "mw",
-}
+_DEFAULT_ACCOUNT_BY_CATEGORY: dict = {}
 
 
 def load_accounts() -> dict:
