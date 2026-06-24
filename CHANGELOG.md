@@ -4,6 +4,10 @@ All notable changes to `a-team` are documented here.
 
 This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-06-24
+
+- **Fix: new window opens but nothing runs.** Spawning waited a fixed 0.6s after opening the Ghostty window before pasting the launch command; when window-open latency exceeds that (newer macOS/Ghostty, system load), the paste lands in a window that isn't ready and nothing executes. Now polls for the new window to actually appear (up to ~4s) before pasting, with a short settle — robust to variable open latency instead of a magic delay.
+
 ## [0.4.0] - 2026-06-16
 
 - **Per-agent Claude account.** An agent can run under a different Claude login, selected by `CLAUDE_CONFIG_DIR` (each config dir holds its own account). Account resolves as: explicit `account` on the agent → a category→account rule → `personal`. Only `personal` ships as a default; define other profiles and rules via `[accounts]` and `[account_by_category]` in `agents.toml`. The picker badges non-personal agents (e.g. `⟨work⟩`), `a-team new` / `a-team here` accept `--account`, and the interactive new-agent flow asks for it (defaulting to the category's account).
