@@ -35,17 +35,26 @@ _APPLESCRIPT = r'''
 tell application "Ghostty" to activate
 tell application "System Events"
     tell process "Ghostty"
+        set n0 to count of windows
         click menu item "New Window" of menu "File" of menu bar 1
+        -- Wait for the new window to actually appear (up to ~4s) rather than a
+        -- blind delay. Window-open latency varies with system load and OS/Ghostty
+        -- version; a too-short fixed delay pastes into a window that isn't ready
+        -- yet, so nothing runs (the failure this fixes).
+        repeat 40 times
+            if (count of windows) > n0 then exit repeat
+            delay 0.1
+        end repeat
     end tell
 end tell
-delay 0.6
+delay 0.4
 tell application "System Events"
-    -- Clear anything the restored shell may have buffered at the prompt,
-    -- then paste the launch command and submit it.
+    -- Clear anything the restored shell may have buffered at the prompt, then
+    -- paste the launch command (atomic — no dropped chars) and submit it.
     keystroke "u" using control down
-    delay 0.05
+    delay 0.1
     keystroke "v" using command down
-    delay 0.15
+    delay 0.3
     key code 36
 end tell
 '''
