@@ -209,8 +209,10 @@ def update_agent(
     new_name: str | None = None,
     new_path: str | None = None,
     new_category: str | None = None,
+    new_account: str | None = None,
 ) -> dict:
-    """Rename, change path, or change category of an existing agent.
+    """Rename, change path, category, or account of an existing agent.
+    Pass new_account="" to clear the override and fall back to the category rule.
     Raises if not found or if new_name collides."""
     agents = load_agents()
     target = next((a for a in agents if a["name"] == name), None)
@@ -233,6 +235,12 @@ def update_agent(
             target["category"] = new_category
         else:
             target.pop("category", None)
+
+    if new_account is not None:
+        if new_account:
+            target["account"] = new_account
+        else:
+            target.pop("account", None)
 
     save_agents(agents)
     return target
