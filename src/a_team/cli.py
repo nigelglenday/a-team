@@ -142,8 +142,7 @@ def here_cmd(name: str | None, ephemeral: bool, category: str | None, account: s
 def _slugify(label: str) -> str:
     """Lowercase, replace runs of non-alphanumerics with single hyphens,
     trim leading/trailing hyphens. Empty string in → empty string out."""
-    slug = re.sub(r"[^A-Za-z0-9]+", "-", label).strip("-").lower()
-    return slug
+    return config.slugify(label)
 
 
 def _scratch_name() -> str:
@@ -264,7 +263,7 @@ def _resolve_new_path(name: str, path: str | None) -> str | None:
 
     parent = config.get_default_parent()
     if parent:
-        scaffolded = parent / name
+        scaffolded = parent / config.slugify(name)
         try:
             scaffolded.mkdir(parents=False, exist_ok=False)
         except FileExistsError:
@@ -278,7 +277,7 @@ def _resolve_new_path(name: str, path: str | None) -> str | None:
 
     ui.error("No path argument, no valid clipboard path, and no default_parent set.")
     ui.console.print(
-        "[soft]Set one with: a-team config default-parent ~/Documents/other-projects[/soft]"
+        "[soft]Set one with: a-team config default-parent ~/agents[/soft]"
     )
     return None
 
@@ -508,8 +507,15 @@ def _create_agent_flow(default_path: str | None = None) -> str | None:
     if not new:
         return None
 
-    # Scaffold the folder if it doesn't exist but the parent does.
+    # A bare/relative folder must not resolve against the cwd: a-team is often
+    # launched from an arbitrary session folder (e.g. a Google Drive dir), which
+    # silently scaffolded agents in the wrong place. Anchor relatives to
+    # default_parent when one is set.
     p = Path(new["path"]).expanduser()
+    if not p.is_absolute():
+        p = (parent / p) if parent else p.resolve()
+
+    # Scaffold the folder if it doesn't exist but the parent does.
     if not p.exists():
         if p.parent.is_dir():
             try:
