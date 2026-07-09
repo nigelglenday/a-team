@@ -301,11 +301,17 @@ def prompt_new_agent(
         return None
     name = name.strip()
 
-    if not default_path:
-        default_path = _clipboard_path_or_empty()
+    # Default the folder to <default_parent>/<slug-of-name>, so "Art Handler"
+    # prefills as ~/agents/art-handler and Enter does the right thing. Only fall
+    # back to a clipboard directory (Finder: Copy as Pathname) when there's no
+    # default_parent — otherwise a stale clipboard silently picks the folder.
+    from .config import slugify
 
     if not default_path and default_parent:
-        default_path = str(Path(default_parent).expanduser() / name)
+        default_path = str(Path(default_parent).expanduser() / slugify(name))
+
+    if not default_path:
+        default_path = _clipboard_path_or_empty()
 
     path = questionary.path(
         "Folder:",
