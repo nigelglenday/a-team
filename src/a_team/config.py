@@ -1,6 +1,7 @@
 """Read and write the agents.toml registry."""
 
 import os
+import re
 import tomllib
 from pathlib import Path
 from typing import Literal
@@ -8,6 +9,11 @@ from typing import Literal
 import tomli_w
 
 _DEFAULT_CONFIG_PATH = Path.home() / ".config" / "a-team" / "agents.toml"
+
+
+def slugify(label: str) -> str:
+    """Folder-safe slug from a display name: 'Art Handler' -> 'art-handler'."""
+    return re.sub(r"[^A-Za-z0-9]+", "-", label).strip("-").lower()
 
 AgentKind = Literal["persistent", "ephemeral"]
 
