@@ -25,6 +25,9 @@ dependencies = [
     "tomli-w>=1.0",
 ]
 
+[project.optional-dependencies]
+tui = ["textual>=0.80"]
+
 [project.scripts]
 a-team = "a_team.cli:main"
 

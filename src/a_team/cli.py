@@ -282,6 +282,17 @@ def _resolve_new_path(name: str, path: str | None) -> str | None:
     return None
 
 
+@cli.command("tui")
+def tui_cmd() -> None:
+    """Open the live dashboard (requires the 'tui' extra)."""
+    try:
+        from . import tui
+    except ImportError:
+        ui.error("the dashboard needs textual: pip install 'a-team[tui]'")
+        raise SystemExit(1)
+    tui.run()
+
+
 @cli.group("config")
 def config_cmd() -> None:
     """Show or set a-team settings (stored in agents.toml)."""
