@@ -4,6 +4,12 @@ All notable changes to `a-team` are documented here.
 
 This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-07-08
+
+- **Fix: new agents could be scaffolded in the wrong place.** A bare/relative folder entered in the picker resolved against the current working directory — so running `a-team` from an arbitrary session folder (e.g. a Google Drive directory) silently created the agent there. Relative paths now anchor to `default_parent`.
+- **New agent folders are derived from the name, slugified.** The picker prefills `<default_parent>/<slug>` ("Art Handler" → `~/agents/art-handler`), and `a-team new <NAME>` scaffolds the same. Previously the raw display name was used, producing folders with spaces. Adds a shared `config.slugify()`.
+- **The name-derived default now takes precedence over the clipboard**, so a stale Finder "Copy as Pathname" can no longer silently pick the folder for a new agent. The clipboard remains the fallback when no `default_parent` is set.
+
 ## [0.4.1] - 2026-06-24
 
 - **Fix: new window opens but nothing runs.** Spawning waited a fixed 0.6s after opening the Ghostty window before pasting the launch command; when window-open latency exceeds that (newer macOS/Ghostty, system load), the paste lands in a window that isn't ready and nothing executes. Now polls for the new window to actually appear (up to ~4s) before pasting, with a short settle — robust to variable open latency instead of a magic delay.
