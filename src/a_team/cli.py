@@ -45,6 +45,33 @@ def _clipboard_path() -> str | None:
     return None
 
 
+def _open(
+    agent: dict,
+    *,
+    session_mode: str = "continue",
+    topic: str | None = None,
+    override_harness: str | None = None,
+) -> bool:
+    """Launch an agent under its saved harness (or a one-time override),
+    resolving the harness-appropriate account config. One place so every launch
+    path stays consistent. Returns False (after printing an actionable error) if
+    the chosen harness isn't installed."""
+    hk = config.resolve_harness(agent, override=override_harness).key
+    try:
+        spawn.open_agent(
+            agent["name"],
+            agent["path"],
+            session_mode=session_mode,
+            topic=topic,
+            harness=hk,
+            config_dir=config.resolve_config_dir(agent, harness=hk),
+        )
+        return True
+    except RuntimeError as e:
+        ui.error(str(e))
+        return False
+
+
 class AteamGroup(click.Group):
     """Click Group that routes unknown command names to the direct-open
     shortcut handler. Lets `a-team EA` work without colliding with the
@@ -57,7 +84,15 @@ class AteamGroup(click.Group):
 
         # Unknown name — treat as direct-open shortcut.
         @click.command(name=cmd_name, help=f"Open agent '{cmd_name}'.")
-        def shortcut():
+        @click.option(
+            "--harness",
+            "harness",
+            type=click.Choice(["claude", "codex"]),
+            default=None,
+            help="Open under this harness once (default: the agent's saved harness). "
+            "Does not change the saved default.",
+        )
+        def shortcut(harness: str | None):
             agent = config.find_agent(cmd_name)
             if not agent:
                 ui.error(f"agent not found: {cmd_name}")
@@ -65,7 +100,8 @@ class AteamGroup(click.Group):
                     "[soft]Run `a-team ls` to see registered agents.[/soft]"
                 )
                 sys.exit(1)
-            spawn.open_agent(agent["name"], agent["path"], config_dir=config.resolve_config_dir(agent))
+            if not _open(agent, override_harness=harness):
+                sys.exit(1)
 
         return shortcut
 
@@ -111,7 +147,8 @@ def all_cmd(ctx: click.Context) -> None:
 @click.option("--ephemeral", is_flag=True, help="Mark as ephemeral (excluded from `a-team all`).")
 @click.option("--category", "-c", default=None, help="Category for grouping in the picker.")
 @click.option("--account", default=None, help="Claude account override (e.g. 'work'). Omit to use the category's default.")
-def here_cmd(name: str | None, ephemeral: bool, category: str | None, account: str | None) -> None:
+@click.option("--harness", type=click.Choice(["claude", "codex"]), default=None, help="Harness to run this agent under (default: claude).")
+def here_cmd(name: str | None, ephemeral: bool, category: str | None, account: str | None, harness: str | None) -> None:
     """Register the current working directory as an agent.
 
     Name defaults to the directory's basename if omitted. Useful for adding
@@ -131,12 +168,12 @@ def here_cmd(name: str | None, ephemeral: bool, category: str | None, account: s
         name = Path(cwd).name
     kind = "ephemeral" if ephemeral else "persistent"
     try:
-        agent = config.add_agent(name, cwd, kind=kind, category=category, account=account)
+        agent = config.add_agent(name, cwd, kind=kind, category=category, account=account, harness=harness)
     except ValueError as e:
         ui.error(str(e))
         sys.exit(1)
     cat_suffix = f", {agent['category']}" if agent.get("category") else ""
-    ui.info(f"Added agent '{agent['name']}' ({agent['kind']}{cat_suffix}) → {agent['path']}")
+    ui.info(f"Added agent '{agent['name']}' ({agent['kind']}, {agent['harness']}{cat_suffix}) → {agent['path']}")
 
 
 def _slugify(label: str) -> str:
@@ -199,7 +236,7 @@ def scratch_cmd(label: str | None) -> None:
     if agent is None:
         sys.exit(1)
     ui.info(f"Created scratch '{agent['name']}' → {agent['path']}")
-    spawn.open_agent(agent["name"], agent["path"], config_dir=config.resolve_config_dir(agent))
+    _open(agent)
 
 
 @cli.command("new")
@@ -208,7 +245,8 @@ def scratch_cmd(label: str | None) -> None:
 @click.option("--ephemeral", is_flag=True, help="Mark as ephemeral (excluded from `a-team all`).")
 @click.option("--category", "-c", default=None, help="Category for grouping in the picker.")
 @click.option("--account", default=None, help="Claude account override (e.g. 'work'). Omit to use the category's default.")
-def new_cmd(name: str, path: str | None, ephemeral: bool, category: str | None, account: str | None) -> None:
+@click.option("--harness", type=click.Choice(["claude", "codex"]), default=None, help="Harness to run this agent under (default: claude).")
+def new_cmd(name: str, path: str | None, ephemeral: bool, category: str | None, account: str | None, harness: str | None) -> None:
     """Register a new agent.
 
     PATH lookup order if omitted:
@@ -222,12 +260,12 @@ def new_cmd(name: str, path: str | None, ephemeral: bool, category: str | None, 
 
     kind = "ephemeral" if ephemeral else "persistent"
     try:
-        agent = config.add_agent(name, resolved, kind=kind, category=category, account=account)
+        agent = config.add_agent(name, resolved, kind=kind, category=category, account=account, harness=harness)
     except ValueError as e:
         ui.error(str(e))
         sys.exit(1)
     cat_suffix = f", {agent['category']}" if agent.get("category") else ""
-    ui.info(f"Added agent '{agent['name']}' ({agent['kind']}{cat_suffix}) → {agent['path']}")
+    ui.info(f"Added agent '{agent['name']}' ({agent['kind']}, {agent['harness']}{cat_suffix}) → {agent['path']}")
 
 
 def _resolve_new_path(name: str, path: str | None) -> str | None:
@@ -482,13 +520,7 @@ def run_picker(no_splash: bool = False) -> None:
             ui.CHAT_MODE_CONTINUE: "continue",
             ui.CHAT_MODE_RESUME: "resume",
         }.get(mode, "continue")
-        spawn.open_agent(
-            selection["name"],
-            selection["path"],
-            session_mode=session_mode,
-            topic=topic,
-            config_dir=config.resolve_config_dir(selection),
-        )
+        _open(selection, session_mode=session_mode, topic=topic)
         label = f"{selection['name']}: {topic}" if topic else selection["name"]
         suffix = {"new": " (new chat)", "resume": " (resume)"}.get(session_mode, "")
         last_action = f"Opened {label}{suffix}"
@@ -504,7 +536,7 @@ def _scratch_via_picker() -> str | None:
     agent = _create_scratch(label or None)
     if agent is None:
         return None
-    spawn.open_agent(agent["name"], agent["path"], config_dir=config.resolve_config_dir(agent))
+    _open(agent)
     return f"Opened scratch '{agent['name']}'"
 
 
@@ -560,7 +592,7 @@ def _create_agent_flow(default_path: str | None = None) -> str | None:
         style=questionary.Style([("question", "bold"), ("pointer", "fg:#ff8800")]),
     ).ask()
     if open_now:
-        spawn.open_agent(agent["name"], agent["path"], config_dir=config.resolve_config_dir(agent))
+        _open(agent)
 
 
 def _manage_flow(agents: list[dict]) -> str | None:
