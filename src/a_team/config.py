@@ -8,6 +8,8 @@ from typing import Literal
 
 import tomli_w
 
+from . import harness as _harness
+
 _DEFAULT_CONFIG_PATH = Path.home() / ".config" / "a-team" / "agents.toml"
 
 
@@ -52,9 +54,23 @@ def _load_raw() -> dict:
 
 
 def _save_raw(data: dict) -> None:
+    """Write the registry atomically: serialize to a temp file in the same
+    directory, then os.replace() over the target. A crash mid-write leaves the
+    old registry intact rather than a truncated file."""
     _ensure_config_exists()
-    with config_path().open("wb") as f:
-        tomli_w.dump(data, f)
+    p = config_path()
+    tmp = p.with_name(p.name + f".tmp.{os.getpid()}")
+    try:
+        with tmp.open("wb") as f:
+            tomli_w.dump(data, f)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, p)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def load_agents() -> list[dict]:
@@ -152,18 +168,114 @@ def resolve_account(agent: dict) -> str:
     return "personal"
 
 
-def resolve_config_dir(agent: dict) -> str | None:
-    """CLAUDE_CONFIG_DIR for an agent's account, or None for personal/default."""
+def resolve_config_dir(agent: dict, harness: str | None = None) -> str | None:
+    """Config dir for an agent's account, or None for personal/default.
+
+    The account system is Claude-specific in v1 (it maps to CLAUDE_CONFIG_DIR),
+    so this returns None for any non-Claude harness rather than handing a Claude
+    config dir to Codex. `harness` overrides the agent's saved harness for a
+    one-time open."""
+    key = _harness.normalize_key(harness) if harness else _harness.normalize_key(agent.get("harness"))
+    if key != _harness.DEFAULT_HARNESS:
+        return None
     raw = load_accounts().get(resolve_account(agent), "")
     return str(Path(raw).expanduser()) if raw else None
 
 
+# ---------------------------------------------------------------------------
+# Identity: stable id + harness
+# ---------------------------------------------------------------------------
+#
+# An agent's identity is its stable `id`, not its display `name`. Renaming an
+# agent changes `name` but never `id`, so its inbox and history stay put. The
+# `harness` field records the default runtime (claude | codex); it is a runtime
+# choice, not part of identity. Legacy entries have neither field: we backfill
+# them IN MEMORY (id from the name slug, harness = claude) so everything works,
+# but never rewrite the live file except through the explicit migration path.
+
+
+def _agent_aliases(agent: dict) -> list[str]:
+    raw = agent.get("aliases", [])
+    return [str(a) for a in raw] if isinstance(raw, list) else []
+
+
+def _normalized(agents: list[dict]) -> list[dict]:
+    """Return copies with `id` and `harness` guaranteed. Backfilled ids come
+    from the name slug, de-duplicated across the set; explicit ids win."""
+    used: set[str] = {a["id"] for a in agents if a.get("id")}
+    out: list[dict] = []
+    for a in agents:
+        b = dict(a)
+        if not b.get("id"):
+            base = slugify(b.get("name", "")) or "agent"
+            candidate, n = base, 2
+            while candidate in used:
+                candidate, n = f"{base}-{n}", n + 1
+            b["id"] = candidate
+            used.add(candidate)
+        b["harness"] = _harness.normalize_key(b.get("harness"))
+        out.append(b)
+    return out
+
+
+def load_agents_normalized() -> list[dict]:
+    """Agents with id + harness filled in (does not modify the file)."""
+    return _normalized(load_agents())
+
+
+def resolve_agent(identifier: str) -> dict | None:
+    """Resolve an identifier to exactly one agent, or None if no match.
+
+    Match order: stable id, then exact name, then an explicit alias. Raises
+    ValueError if the identifier is ambiguous (matches more than one agent),
+    rather than silently returning the first — the ambiguity the issue warns
+    against. Returns the normalized dict (id + harness present)."""
+    agents = load_agents_normalized()
+    by_id = [a for a in agents if a["id"] == identifier]
+    if by_id:
+        return by_id[0]  # ids are unique by construction
+    by_name = [a for a in agents if a.get("name") == identifier]
+    if len(by_name) > 1:
+        raise ValueError(f"identifier {identifier!r} matches multiple agents by name; use the id")
+    if by_name:
+        return by_name[0]
+    by_alias = [a for a in agents if identifier in _agent_aliases(a)]
+    if len(by_alias) > 1:
+        raise ValueError(f"alias {identifier!r} matches multiple agents; use the id")
+    return by_alias[0] if by_alias else None
+
+
 def find_agent(name: str) -> dict | None:
-    """Return the agent dict with the given name, or None."""
-    for a in load_agents():
-        if a["name"] == name:
-            return a
-    return None
+    """Back-compat resolver by name/id/alias. Returns None when unresolved.
+
+    Kept for existing callers; new code should use `resolve_agent`. Ambiguity
+    (a duplicate name) returns None here rather than raising, to preserve the
+    old best-effort contract at call sites that don't expect an exception."""
+    try:
+        return resolve_agent(name)
+    except ValueError:
+        return None
+
+
+def resolve_harness(agent: dict, override: str | None = None) -> _harness.Harness:
+    """The harness to launch an agent under: one-time override, else the saved
+    default, else Claude. An override never mutates the saved default."""
+    key = override if override else agent.get("harness")
+    return _harness.get(key)
+
+
+def _new_id(name: str, existing_ids: set[str], explicit: str | None = None) -> str:
+    """A stable, unique id for a new agent: the explicit id if given and free,
+    else the name slug de-duplicated with a numeric suffix."""
+    if explicit:
+        if explicit in existing_ids:
+            raise ValueError(f"agent id '{explicit}' already exists")
+        return explicit
+    base = slugify(name) or "agent"
+    candidate, n = base, 2
+    while candidate in existing_ids:
+        candidate, n = f"{base}-{n}", n + 1
+    return candidate
 
 
 def add_agent(
@@ -172,18 +284,31 @@ def add_agent(
     kind: AgentKind = "persistent",
     category: str | None = None,
     account: str | None = None,
+    harness: str | None = None,
+    agent_id: str | None = None,
 ) -> dict:
-    """Append a new agent. Raises ValueError if name already exists or
-    path doesn't exist. `account` is stored only as an explicit override; leave
-    it None to let the category rule decide the Claude account."""
+    """Append a new agent with a stable id and saved harness. Raises ValueError
+    if the name or id already exists, or the path doesn't exist. `account` is an
+    explicit override; leave None to let the category rule decide the Claude
+    account. `harness` defaults to Claude Code."""
     if find_agent(name):
         raise ValueError(f"agent '{name}' already exists")
     resolved = Path(path).expanduser().resolve()
     if not resolved.is_dir():
         raise ValueError(f"path is not a directory: {path}")
 
+    existing = {a["id"] for a in load_agents_normalized()}
+    new_id = _new_id(name, existing, agent_id)
+    harness_key = _harness.normalize_key(harness)
+
     agents = load_agents()
-    agent: dict = {"name": name, "path": str(resolved), "kind": kind}
+    agent: dict = {
+        "id": new_id,
+        "name": name,
+        "path": str(resolved),
+        "kind": kind,
+        "harness": harness_key,
+    }
     if category:
         agent["category"] = category
     if account:
