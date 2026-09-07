@@ -242,5 +242,39 @@ class LaunchCommand(unittest.TestCase):
                 harness.HARNESSES["x"] = orig
 
 
+class StatusAttribution(unittest.TestCase):
+    """running_pids attributes live sessions by folder AND harness."""
+
+    def test_same_folder_two_harnesses_not_conflated(self):
+        from a_team import status
+
+        path = "/tmp/shared"
+        sessions = {path: [(101, "claude"), (202, "codex"), (103, "claude")]}
+        claude_agent = {"path": path, "harness": "claude"}
+        codex_agent = {"path": path, "harness": "codex"}
+        self.assertEqual(sorted(status.running_pids(claude_agent, sessions)), [101, 103])
+        self.assertEqual(status.running_pids(codex_agent, sessions), [202])
+
+    def test_legacy_agent_attributes_as_claude(self):
+        from a_team import status
+
+        path = "/tmp/legacy"
+        sessions = {path: [(1, "claude"), (2, "codex")]}
+        legacy = {"path": path}  # no harness field
+        self.assertEqual(status.running_pids(legacy, sessions), [1])
+
+    def test_no_sessions_in_folder(self):
+        from a_team import status
+
+        self.assertEqual(status.running_pids({"path": "/nope", "harness": "codex"}, {}), [])
+
+    def test_codex_service_subcommands_recognized(self):
+        from a_team import status
+
+        # These must be recognized as services so they are never killed as sessions.
+        for sub in ("app-server", "mcp-server", "remote-control", "exec"):
+            self.assertIn(sub, status._CODEX_SERVICE_SUBCMDS)
+
+
 if __name__ == "__main__":
     unittest.main()

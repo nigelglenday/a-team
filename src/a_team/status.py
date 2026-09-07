@@ -1,11 +1,15 @@
-"""Live status for agents: running Claude Code sessions and unread inbox messages.
+"""Live status for agents: running harness sessions and unread inbox messages.
 
 Pure data, no UI. Kept separate from `tui.py` so the view stays thin and this
 can be tested (and reused) on its own.
 
-A "live session" is a `claude` process whose working directory is the agent's
-folder. An agent can have several (parallel chats in the same folder), so the
-counts are meaningful, not just a yes/no.
+A "live session" is an interactive harness process (``claude`` or ``codex``)
+whose working directory is the agent's folder. An agent can have several
+(parallel chats in the same folder), so the counts are meaningful, not just a
+yes/no. Attribution is by directory AND harness, so a Claude session and a Codex
+session in the same folder are never conflated — and a Codex *service* process
+(``codex app-server`` / ``mcp-server`` / ``remote-control``) is never counted or
+killable as if it were an agent session.
 """
 
 from __future__ import annotations
@@ -15,34 +19,78 @@ import signal
 import subprocess
 from pathlib import Path
 
-from .config import slugify
+from . import harness as _harness
+from .config import resolve_harness, slugify
 
 INBOX_ROOT = Path.home() / "Documents" / "Tasks" / "messages" / "inbox"
 
+# Session = (pid, harness_key). live_sessions() maps cwd -> list of these.
+Session = tuple[int, str]
 
-def _claude_pids() -> list[int]:
-    """PIDs of running `claude` processes (the CLI itself, not helpers)."""
+# Codex subcommands that are servers/tools, not an interactive agent session.
+# These must never be attributed to an agent or killed by a stop action.
+_CODEX_SERVICE_SUBCMDS = frozenset(
+    {"app-server", "mcp-server", "mcp", "remote-control", "exec", "e"}
+)
+
+
+def _pids_for(executable: str) -> list[int]:
+    """PIDs of running processes whose exact name is `executable`."""
     try:
         out = subprocess.run(
-            ["pgrep", "-x", "claude"], capture_output=True, text=True, timeout=3
+            ["pgrep", "-x", executable], capture_output=True, text=True, timeout=3
         )
     except (subprocess.SubprocessError, FileNotFoundError, OSError):
         return []
     return [int(tok) for tok in out.stdout.split() if tok.isdigit()]
 
 
-def live_sessions() -> dict[str, list[int]]:
-    """Map resolved working directory -> pids of claude processes running there.
+def _is_codex_service(pid: int) -> bool:
+    """True if this codex pid is a server/tool subcommand rather than an
+    interactive session. Reads the process command; on failure returns False
+    (treat as a session) — the directory+harness match is the real guard, and a
+    codex service almost never runs in an agent's project folder."""
+    try:
+        out = subprocess.run(
+            ["ps", "-o", "command=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+    except (subprocess.SubprocessError, FileNotFoundError, OSError):
+        return False
+    parts = out.stdout.strip().split()
+    for i, tok in enumerate(parts):
+        if Path(tok).name == "codex":
+            nxt = parts[i + 1] if i + 1 < len(parts) else ""
+            return nxt in _CODEX_SERVICE_SUBCMDS
+    return False
+
+
+def _agent_pids() -> dict[int, str]:
+    """Map pid -> harness_key for interactive harness processes, excluding codex
+    service subcommands."""
+    result: dict[int, str] = {}
+    for h in _harness.HARNESSES.values():
+        for pid in _pids_for(h.executable):
+            if h.key == "codex" and _is_codex_service(pid):
+                continue
+            result[pid] = h.key
+    return result
+
+
+def live_sessions() -> dict[str, list[Session]]:
+    """Map resolved working directory -> list of (pid, harness) running there.
 
     One `lsof` call for every pid (not one per pid) so this is cheap enough to
     poll on a timer.
     """
-    pids = _claude_pids()
-    if not pids:
+    pid_harness = _agent_pids()
+    if not pid_harness:
         return {}
     try:
         out = subprocess.run(
-            ["lsof", "-a", "-p", ",".join(map(str, pids)), "-d", "cwd", "-Fpn"],
+            ["lsof", "-a", "-p", ",".join(map(str, pid_harness)), "-d", "cwd", "-Fpn"],
             capture_output=True,
             text=True,
             timeout=5,
@@ -50,21 +98,27 @@ def live_sessions() -> dict[str, list[int]]:
     except (subprocess.SubprocessError, FileNotFoundError, OSError):
         return {}
 
-    sessions: dict[str, list[int]] = {}
+    sessions: dict[str, list[Session]] = {}
     current: int | None = None
     for line in out.stdout.splitlines():
         if line.startswith("p"):
             current = int(line[1:]) if line[1:].isdigit() else None
         elif line.startswith("n") and current is not None:
-            sessions.setdefault(str(Path(line[1:])), []).append(current)
+            hk = pid_harness.get(current)
+            if hk is not None:
+                sessions.setdefault(str(Path(line[1:])), []).append((current, hk))
     return sessions
 
 
-def running_pids(agent: dict, sessions: dict[str, list[int]] | None = None) -> list[int]:
-    """PIDs of live sessions for this agent (empty list if none)."""
+def running_pids(agent: dict, sessions: dict[str, list[Session]] | None = None) -> list[int]:
+    """PIDs of live sessions for this agent, matching its folder AND harness.
+
+    A Codex agent's stop targets only codex pids in its folder, never a Claude
+    session that happens to share the directory (and vice versa)."""
     if sessions is None:
         sessions = live_sessions()
-    return sessions.get(str(Path(agent["path"])), [])
+    want = resolve_harness(agent).key
+    return [pid for (pid, hk) in sessions.get(str(Path(agent["path"])), []) if hk == want]
 
 
 def kill_pids(pids: list[int]) -> int:
