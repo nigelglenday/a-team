@@ -11,6 +11,7 @@ Subcommand layout:
     a-team ls
 """
 
+import json
 import os
 import re
 import subprocess
@@ -140,6 +141,40 @@ def all_cmd(ctx: click.Context) -> None:
     ui.info(f"Restoring {len(persistent)} agents…")
     spawn.open_all(persistent)
     ui.info("Done.")
+
+
+@cli.command("resolve")
+@click.argument("identifier")
+@click.option("--json", "as_json", is_flag=True, help="Emit the full record as JSON.")
+@click.option("--field", type=click.Choice(["id", "name", "path", "harness"]), default=None,
+              help="Print just one field (for shell scripts).")
+def resolve_cmd(identifier: str, as_json: bool, field: str | None) -> None:
+    """Resolve an agent identifier (id, exact name, or alias) to its record.
+
+    The single canonical resolver for shell helpers: instead of each script
+    re-parsing agents.toml, they call this. Resolves by stable id → exact name →
+    alias, refuses ambiguous matches (exit 2), and exits 1 if not found. Default
+    output is the stable id; --field or --json for more.
+    """
+    try:
+        agent = config.resolve_agent(identifier)
+    except ValueError as e:  # ambiguous identifier
+        ui.error(str(e))
+        sys.exit(2)
+    if not agent:
+        ui.error(f"no agent matches {identifier!r}")
+        sys.exit(1)
+    if as_json:
+        click.echo(json.dumps({
+            "id": agent["id"],
+            "name": agent["name"],
+            "path": agent["path"],
+            "harness": agent["harness"],
+        }))
+    elif field:
+        click.echo(agent[field])
+    else:
+        click.echo(agent["id"])
 
 
 @cli.command("migrate")
