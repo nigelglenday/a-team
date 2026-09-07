@@ -504,8 +504,22 @@ def run_picker(no_splash: bool = False) -> None:
             splash_shown = False  # screen was cleared; re-show splash
             continue
 
-        # User picked an actual agent — ask resume vs fresh chat, then open.
-        mode = ui.prompt_chat_mode(selection["name"])
+        # User picked an actual agent — ask resume vs fresh chat (with the
+        # harness shown), then open. Chosen harness starts at the saved default;
+        # "Switch harness…" re-asks under the other one for this open only and
+        # never changes the saved default.
+        chosen_harness = config.resolve_harness(selection).key
+        mode = ui.prompt_chat_mode(
+            selection["name"], harness_label=config.resolve_harness(selection, override=chosen_harness).label
+        )
+        while mode == ui.CHAT_MODE_SWITCH_HARNESS:
+            picked = ui.prompt_harness(selection["name"], chosen_harness)
+            if picked:
+                chosen_harness = picked
+            mode = ui.prompt_chat_mode(
+                selection["name"],
+                harness_label=config.resolve_harness(selection, override=chosen_harness).label,
+            )
         if mode is None or mode == ui.CHAT_MODE_CANCEL:
             # Cancelled the sub-prompt; loop back to the picker without opening.
             continue
@@ -520,7 +534,7 @@ def run_picker(no_splash: bool = False) -> None:
             ui.CHAT_MODE_CONTINUE: "continue",
             ui.CHAT_MODE_RESUME: "resume",
         }.get(mode, "continue")
-        _open(selection, session_mode=session_mode, topic=topic)
+        _open(selection, session_mode=session_mode, topic=topic, override_harness=chosen_harness)
         label = f"{selection['name']}: {topic}" if topic else selection["name"]
         suffix = {"new": " (new chat)", "resume": " (resume)"}.get(session_mode, "")
         last_action = f"Opened {label}{suffix}"
@@ -577,6 +591,7 @@ def _create_agent_flow(default_path: str | None = None) -> str | None:
             kind=new["kind"],
             category=new.get("category"),
             account=new.get("account"),
+            harness=new.get("harness"),
         )
     except ValueError as e:
         ui.error(str(e))
