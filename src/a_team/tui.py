@@ -273,26 +273,51 @@ class ATeamTUI(App):
 
     @work
     async def _open_flow(self, agent: dict) -> None:
-        mode = await self.push_screen_wait(
-            ChoiceModal(
-                f"Open {agent['name']}",
-                [
-                    ("Continue last session", "continue"),
-                    ("New session", "new"),
-                    ("Resume a past session", "resume"),
-                ],
+        from . import harness as _harness
+
+        chosen = config.resolve_harness(agent).key
+        while True:
+            label = config.resolve_harness(agent, override=chosen).label
+            mode = await self.push_screen_wait(
+                ChoiceModal(
+                    f"Open {agent['name']} [{label}]",
+                    [
+                        ("Continue last session", "continue"),
+                        ("New session", "new"),
+                        ("Resume a past session", "resume"),
+                        ("Switch harness…", "switch_harness"),
+                    ],
+                )
             )
-        )
-        if not mode:
+            if not mode:
+                return
+            if mode == "switch_harness":
+                picked = await self.push_screen_wait(
+                    ChoiceModal(
+                        f"Harness for {agent['name']}",
+                        [(h.label, h.key) for h in _harness.HARNESSES.values()],
+                    )
+                )
+                if picked:
+                    chosen = picked
+                continue
+            break
+
+        h = _harness.get(chosen)
+        if not h.is_available():
+            self.notify(
+                f"{h.label} is not installed (need `{h.executable}`).", severity="error"
+            )
             return
-        self.notify(f"Opening {agent['name']} ({mode})")
+        self.notify(f"Opening {agent['name']} ({mode}, {h.label})")
         self.run_worker(
             partial(
                 spawn.open_agent,
                 agent["name"],
                 agent["path"],
                 session_mode=mode,
-                config_dir=config.resolve_config_dir(agent),
+                harness=chosen,
+                config_dir=config.resolve_config_dir(agent, harness=chosen),
             ),
             thread=True,
         )
