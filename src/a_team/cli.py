@@ -142,6 +142,31 @@ def all_cmd(ctx: click.Context) -> None:
     ui.info("Done.")
 
 
+@cli.command("migrate")
+@click.option("--apply", "do_apply", is_flag=True, help="Write the changes (default is a dry run).")
+def migrate_cmd(do_apply: bool) -> None:
+    """Backfill stable ids + harness into agents.toml (rename-safe identity).
+
+    Dry run by default: shows exactly what would change and writes nothing.
+    Pass --apply to write; the current registry is backed up to
+    <name>.bak-<timestamp> first, and all other fields/tables are preserved.
+    """
+    report = config.migrate_registry(apply=do_apply)
+    changes = report["changes"]
+    if not changes:
+        ui.info(f"Registry already migrated ({report['total']} agents). Nothing to do.")
+        return
+    verb = "Migrated" if do_apply else "Would migrate"
+    ui.info(f"{verb} {len(changes)} of {report['total']} agents in {report['path']}:")
+    for name, agent_id, harness in changes:
+        ui.console.print(f"  [soft]{name}[/soft] → id=[bold]{agent_id}[/bold], harness={harness}")
+    if do_apply:
+        ui.info(f"Backup written to {report['backup']}")
+        ui.info("Done. Rollback: restore the .bak file over agents.toml.")
+    else:
+        ui.warn("Dry run — nothing written. Re-run with --apply to write.")
+
+
 @cli.command("here")
 @click.argument("name", required=False, default=None)
 @click.option("--ephemeral", is_flag=True, help="Mark as ephemeral (excluded from `a-team all`).")
