@@ -276,5 +276,61 @@ class StatusAttribution(unittest.TestCase):
             self.assertIn(sub, status._CODEX_SERVICE_SUBCMDS)
 
 
+class MigrateRegistry(_TempRegistry):
+    def test_dry_run_writes_nothing(self):
+        self.write(
+            """
+            [[agent]]
+            name = "Legacy"
+            path = "%s"
+            kind = "persistent"
+            """
+            % self.workdir
+        )
+        before = self.reg.read_text()
+        report = config.migrate_registry(apply=False)
+        self.assertEqual(len(report["changes"]), 1)
+        self.assertIsNone(report["backup"])
+        self.assertEqual(self.reg.read_text(), before)  # untouched
+
+    def test_apply_backfills_and_preserves(self):
+        self.write(
+            """
+            [settings]
+            default_parent = "/somewhere"
+
+            [accounts]
+            work = "~/.claude-work"
+
+            [[agent]]
+            name = "Legacy One"
+            path = "%s"
+            kind = "persistent"
+            category = "Work"
+            """
+            % self.workdir
+        )
+        report = config.migrate_registry(apply=True)
+        self.assertEqual(report["changes"], [("Legacy One", "legacy-one", "claude")])
+        self.assertIsNotNone(report["backup"])
+        self.assertTrue(Path(report["backup"]).exists())  # backup made
+
+        agents = config.load_agents()  # raw, post-write
+        a = agents[0]
+        self.assertEqual(a["id"], "legacy-one")
+        self.assertEqual(a["harness"], "claude")
+        self.assertEqual(a["category"], "Work")  # preserved
+        self.assertEqual(a["kind"], "persistent")  # preserved
+        # other tables preserved
+        self.assertEqual(config.get_setting("default_parent"), "/somewhere")
+        self.assertEqual(config.load_accounts().get("work"), "~/.claude-work")
+
+    def test_apply_is_idempotent(self):
+        config.add_agent("Already", str(self.workdir), harness="codex")  # has id+harness
+        report = config.migrate_registry(apply=True)
+        self.assertEqual(report["changes"], [])  # nothing to change
+        self.assertIsNone(report["backup"])  # no backup when no changes
+
+
 if __name__ == "__main__":
     unittest.main()

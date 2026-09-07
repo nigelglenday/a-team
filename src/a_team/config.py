@@ -2,6 +2,8 @@
 
 import os
 import re
+import shutil
+import time
 import tomllib
 from pathlib import Path
 from typing import Literal
@@ -262,6 +264,40 @@ def resolve_harness(agent: dict, override: str | None = None) -> _harness.Harnes
     default, else Claude. An override never mutates the saved default."""
     key = override if override else agent.get("harness")
     return _harness.get(key)
+
+
+def migrate_registry(*, apply: bool) -> dict:
+    """Backfill stable `id` + `harness` into the on-disk registry.
+
+    Legacy entries carry neither field; this writes the same values that are
+    otherwise backfilled in memory, making identity durable (rename-safe inboxes)
+    and the saved harness explicit. Existing ids/harness are left untouched.
+
+    Returns a report dict: {path, total, changes:[(name, id, harness)], backup}.
+    With apply=False nothing is written (dry run). With apply=True and at least
+    one change, the current registry is copied to `<name>.bak-<timestamp>` first,
+    then the normalized agents are written atomically, preserving all other
+    tables ([settings]/[accounts]/…) and every existing field."""
+    raw = load_agents()
+    norm = _normalized(raw)
+    changes = [
+        (n["name"], n["id"], n["harness"])
+        for a, n in zip(raw, norm)
+        if not a.get("id") or not a.get("harness")
+    ]
+    report: dict = {
+        "path": str(config_path()),
+        "total": len(raw),
+        "changes": changes,
+        "backup": None,
+    }
+    if apply and changes:
+        p = config_path()
+        bak = p.with_name(p.name + f".bak-{time.strftime('%Y%m%d-%H%M%S')}")
+        shutil.copy2(p, bak)
+        report["backup"] = str(bak)
+        save_agents(norm)  # preserves [settings]/[accounts] via _load_raw + atomic write
+    return report
 
 
 def _new_id(name: str, existing_ids: set[str], explicit: str | None = None) -> str:
