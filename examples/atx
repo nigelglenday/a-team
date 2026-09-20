@@ -12,9 +12,9 @@
 #   atx                 list registered agents
 #   atx <agent>         attach to that agent's session, starting it if needed
 #   atx <agent> -n      start an ADDITIONAL parallel session in the same folder
-#   atx <agent> -n --label Preload
+#   atx <agent> -n --label Acme
 #                       ... and name it after the customer/topic, so the phone app
-#                       shows "Name: Preload" instead of "Name 2"
+#                       shows "Name: Acme" instead of "Name 2"
 #   atx <agent> -s N    attach to parallel session N (1 = the first one)
 #   atx <agent> -d      start detached, do not attach (fire-and-forget)
 #   atx <agent> -L      list this agent's running sessions
@@ -147,7 +147,7 @@ if [ -n "$PICK" ]; then
   RC_NAME="$NAME"; [ "$SESS" != "$ID" ] && RC_NAME="$NAME ${SESS##*-}"
 elif [ -n "$LABEL" ]; then
   # Named session: one per customer/topic. Reuse it if it already exists, so
-  # `atx <agent> --label Preload` is the way back into that customer's session
+  # `atx <agent> --label Acme` is the way back into that customer's session
   # rather than a way to accumulate duplicates of it.
   SLUG=$(printf '%s' "$LABEL" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' \
          | sed 's/--*/-/g; s/^-//; s/-$//')
