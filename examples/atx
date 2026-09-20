@@ -94,10 +94,13 @@ fi
 # Codex has no Remote Control flag, so it is omitted for that harness.
 # ---------------------------------------------------------------------------
 # Which of this agent's sessions are running there? (`<id>`, `<id>-2`, ...)
-EXISTING=$(ssh -o ConnectTimeout=10 "$SSH_T" \
-  "PATH=/opt/homebrew/bin:\$PATH; tmux ls 2>/dev/null | cut -d: -f1" \
-  | grep -E "^${ID}(-[0-9]+)?$" | sort) \
+# Keep the ssh separate from the filtering. Under `set -o pipefail` a grep that
+# matches nothing makes the whole pipeline non-zero, which would report a
+# perfectly reachable host as unreachable the moment an agent has no sessions.
+RAW=$(ssh -o ConnectTimeout=10 "$SSH_T" \
+  "PATH=/opt/homebrew/bin:\$PATH; tmux ls 2>/dev/null | cut -d: -f1") \
   || { echo "could not reach $HOST (ssh $SSH_T)" >&2; exit 1; }
+EXISTING=$(printf '%s\n' "$RAW" | grep -E "^${ID}(-[0-9]+)?$" | sort || true)
 
 if [ "$LISTSESS" -eq 1 ]; then
   if [ -z "$EXISTING" ]; then echo "no running sessions for $NAME on $HOST"; else
