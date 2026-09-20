@@ -323,7 +323,8 @@ def new_cmd(name: str, path: str | None, ephemeral: bool, category: str | None, 
     """
     from . import hosts as _hosts
 
-    host_key = _hosts.normalize_key(host)
+    # No --host given? Use the configured default (a-team config default-host).
+    host_key = _hosts.normalize_key(host if host is not None else config.get_default_host())
     if host_key == _hosts.DEFAULT_HOST:
         resolved = _resolve_new_path(name, path)
         if resolved is None:
@@ -331,17 +332,12 @@ def new_cmd(name: str, path: str | None, ephemeral: bool, category: str | None, 
     else:
         # Remote host: do NOT resolve or scaffold against this filesystem.
         # Pass the raw path through; `~` is expanded on the REMOTE machine.
-        if not path:
-            ui.error(
-                f"--host {host_key} needs an explicit folder path on that machine, "
-                f"e.g. a-team new \"{name}\" '~/agents/{config.slugify(name)}' --host {host_key}"
-            )
-            sys.exit(1)
-        resolved = path
+        # With no path given, mirror the local convention: ~/agents/<slug>.
+        resolved = path or f"~/agents/{config.slugify(name)}"
 
     kind = "ephemeral" if ephemeral else "persistent"
     try:
-        agent = config.add_agent(name, resolved, kind=kind, category=category, account=account, harness=harness, host=host, create_dir=True)
+        agent = config.add_agent(name, resolved, kind=kind, category=category, account=account, harness=harness, host=host_key, create_dir=True)
     except ValueError as e:
         ui.error(str(e))
         sys.exit(1)
@@ -455,6 +451,32 @@ def config_default_parent(path: str | None, unset: bool) -> None:
         sys.exit(1)
     config.set_setting("default_parent", str(expanded))
     ui.info(f"Set default_parent → {expanded}")
+
+
+@config_cmd.command("default-host")
+@click.argument("host_key", required=False, default=None)
+@click.option("--unset", is_flag=True, help="Clear the default_host setting (back to local).")
+def config_default_host(host_key: str | None, unset: bool) -> None:
+    """Set where `a-team new` puts agents when --host isn't given.
+
+    Use a key from the [hosts] table, or 'local' for this machine.
+    """
+    from . import hosts as _hosts
+
+    if unset:
+        config.set_setting("default_host", None)
+        ui.info("Cleared default_host (new agents default to local).")
+        return
+    if not host_key:
+        print(config.get_default_host())
+        return
+    try:
+        key = _hosts.normalize_key(host_key)
+    except ValueError as e:
+        ui.error(str(e))
+        sys.exit(1)
+    config.set_setting("default_host", key)
+    ui.info(f"Set default_host → {key}")
 
 
 @cli.command("rm")

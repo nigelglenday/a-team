@@ -118,6 +118,23 @@ def set_setting(key: str, value: str | None) -> None:
     _save_raw(data)
 
 
+def get_default_host() -> str:
+    """Host key used by `a-team new` when --host isn't given.
+
+    Set with `a-team config default-host <key>`. Falls back to local if the
+    setting is missing or names a host that's no longer in [hosts].
+    """
+    from . import hosts as _hosts
+
+    raw = get_setting("default_host")
+    if not raw:
+        return _hosts.DEFAULT_HOST
+    try:
+        return _hosts.normalize_key(raw)
+    except ValueError:
+        return _hosts.DEFAULT_HOST
+
+
 def get_default_parent() -> Path | None:
     """Return the default parent directory for scaffolded agents, or None."""
     raw = get_setting("default_parent")
