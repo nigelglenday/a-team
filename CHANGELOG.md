@@ -4,6 +4,11 @@ All notable changes to `a-team` are documented here.
 
 This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-09-20
+
+- **`examples/atx`: parallel sessions per agent.** An agent often has several chats open in the same folder (separate builds, separate investigations), which `status.py` already counted but the launcher could not create: the tmux session was named after the agent id, so there was only ever one. `atx <agent> -n` starts an additional session using the next free suffix (`<id>-2`, `<id>-3`, ...), named "`<Name> 2`", "`<Name> 3`" in Remote Control so they stay tellable apart on a phone. `-L` lists an agent's running sessions, `-s N` attaches to one of them.
+- **Fix: `atx` claimed to be starting a session it was actually attaching to.** It now checks which sessions exist on the host first and says "attaching to" or "starting" accordingly.
+
 ## [0.5.1] - 2026-09-20
 
 - **Fix: remote agents always showed as stopped.** 0.5.0 let agents live on another machine but left status detection local-only (`pgrep` + `lsof`), so every remote agent read as not running even while it was. `status.agent_state()` now probes the agent's host over SSH, cached for a few seconds so the TUI does not re-SSH on every repaint.
