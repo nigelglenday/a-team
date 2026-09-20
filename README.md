@@ -1,10 +1,10 @@
 # a-team
 
-![Version](https://img.shields.io/badge/version-0.5.2-orange) ![License](https://img.shields.io/badge/license-MIT-yellow) ![Python](https://img.shields.io/badge/python-3.11%2B-blue) ![Platform](https://img.shields.io/badge/platform-macOS-black) ![Ghostty](https://img.shields.io/badge/terminal-Ghostty-orange) ![Termpaper](https://img.shields.io/badge/set-termpaper-cyan)
+![Version](https://img.shields.io/badge/version-0.5.3-orange) ![License](https://img.shields.io/badge/license-MIT-yellow) ![Python](https://img.shields.io/badge/python-3.11%2B-blue) ![Platform](https://img.shields.io/badge/platform-macOS-black) ![Ghostty](https://img.shields.io/badge/terminal-Ghostty-orange) ![Termpaper](https://img.shields.io/badge/set-termpaper-cyan)
 
 > *I love it when a plan comes together.*
 
-Manage parallel Claude Code sessions in Ghostty. One command brings them all back after a reboot.
+Keep your Claude Code sessions straight: name them, run as many as you like in parallel, put them on whichever machine suits, and reach them from your phone. One command brings them all back after a reboot.
 
 ```
  █████╗       ████████╗███████╗ █████╗ ███╗   ███╗
@@ -17,9 +17,17 @@ Manage parallel Claude Code sessions in Ghostty. One command brings them all bac
 
 ## What it is
 
-An "agent" is a named Claude Code session in a folder. `a-team` keeps a registry of them grouped by category, opens any one (new, continued, or resumed from its past sessions) under that agent's Claude account, and brings them all back after a reboot.
+An **agent** is a named folder. The registry remembers its name, where it lives, which machine it runs on, and which harness drives it. Everything else is built on that one mapping.
 
-Requires macOS, Ghostty, Claude Code, and Python 3.11+.
+- **Parallel sessions.** Several chats in the same folder, each named and separately reachable.
+- **More than one machine.** An agent's folder and session can live on another Mac over SSH, running in tmux so it outlives your window. Start something at your desk, pick it up in an airport.
+- **Reachable from a phone.** Remote sessions start with Claude Code's Remote Control on, named after the agent, so they show up in the Claude app.
+- **Claude Code or Codex**, chosen per agent.
+- **Back after a reboot.** `a-team all` restores every persistent agent.
+
+Requires macOS, Claude Code, and Python 3.11+. Ghostty is needed for the picker and TUI, which open windows for you; `atx` works in any terminal.
+
+**New here?** The [FAQ](docs/faq.md) answers the common questions directly.
 
 ## Install
 
@@ -42,13 +50,39 @@ pipx install -e .
 ```
 a-team                          splash + arrow-key picker (type to filter)
 a-team <name>                   open that agent directly
+a-team tui                      live dashboard: running sessions + unread messages
 a-team all                      restore every persistent agent
+
 a-team new <name> [<path>]      register an agent (path falls back to clipboard)
 a-team here [name]              register the current working directory
 a-team scratch [label]          one-off chat in ~/.a-team/scratch/<timestamp>[_<label>]/
 a-team rm <name>                unregister (folder is kept)
 a-team ls                       plain list, pipe-friendly
+
+a-team resolve <name> --json    where an agent lives (id, path, host, ssh, harness)
+a-team config show              current settings
+a-team migrate                  backfill stable ids on an older registry
 ```
+
+`new` and `here` take `--host`, `--harness`, `--account`, `--category` and `--ephemeral`.
+
+In the TUI, `●` with a count means that many live sessions, `·` means stopped, and a yellow `?` means the agent's host could not be reached, which is not the same as stopped.
+
+### Without the picker
+
+[`examples/atx`](examples/atx) does the same job from the registry alone, in any terminal:
+
+```
+atx                             list registered agents
+atx <agent>                     attach to its session, starting it if needed
+atx <agent> -n                  start an ADDITIONAL parallel session
+atx <agent> -L                  list that agent's running sessions
+atx <agent> -s 3                attach to parallel session 3
+atx <agent> -d                  start detached, do not attach
+atx -l <agent>                  show where it lives, start nothing
+```
+
+Parallel sessions are the normal way to run several builds or investigations at once: the first is `<id>`, the next `<id>-2`, each with its own name so they stay tellable apart on a phone.
 
 `a-team new EA` with no path uses your macOS clipboard. In Finder, Shift+Right-click a folder → Copy as Pathname, then run the command.
 
@@ -144,6 +178,11 @@ An agent's account resolves as: an explicit `account = "work"` on the agent → 
 ## How it spawns windows
 
 Ghostty has no `+new-window` CLI on macOS, so `a-team` opens a window in the running Ghostty instance via the File → New Window menu (AppleScript), then delivers the launch command by **clipboard paste** rather than keystroking it — System Events drops characters on long strings, which mangles the command. The pasted command re-emits the title via OSC-0 on a loop, exports `CLAUDE_CONFIG_DIR` for the agent's account, `cd`s into the folder, and runs claude (`--continue`, `--resume`, or fresh, per your choice).
+
+## Docs
+
+- **[FAQ](docs/faq.md)** — how do I start a second session, why does my remote agent show `?`, I closed the window did I kill it, and the rest.
+- **[Running agents on a second machine](docs/remote-agents.md)** — host setup, Remote Control, and the failure modes worth knowing before you rely on it (chiefly: SSH logins on macOS cannot read the keychain, which silently disables Remote Control).
 
 ## Changelog
 

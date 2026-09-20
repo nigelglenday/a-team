@@ -4,6 +4,11 @@ All notable changes to `a-team` are documented here.
 
 This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2026-09-20
+
+- **[docs/faq.md](docs/faq.md).** Task-shaped answers to the questions people actually ask: opening a second session on the same project, seeing what is running, whether closing the window kills an agent, reaching one from a phone, and what `?` means in the dashboard. The existing docs were organised by concept and failure mode, which is the wrong shape for "how do I".
+- **README overhaul.** It still described a Ghostty session picker. It now leads with what the tool grew into: parallel sessions, agents on a second machine, phone access, and a choice of harness. The command list had drifted badly — `tui`, `resolve`, `config` and `migrate` were missing entirely, and `atx` appeared without any of its flags, so the parallel-session support shipped in 0.5.2 was undiscoverable outside the script's own header. Adds a docs index.
+
 ## [0.5.2] - 2026-09-20
 
 - **`examples/atx`: parallel sessions per agent.** An agent often has several chats open in the same folder (separate builds, separate investigations), which `status.py` already counted but the launcher could not create: the tmux session was named after the agent id, so there was only ever one. `atx <agent> -n` starts an additional session using the next free suffix (`<id>-2`, `<id>-3`, ...), named "`<Name> 2`", "`<Name> 3`" in Remote Control so they stay tellable apart on a phone. `-L` lists an agent's running sessions, `-s N` attaches to one of them.
