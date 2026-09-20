@@ -38,11 +38,28 @@ class Harness:
     # back to a fresh session so a first-ever open never dead-ends.
     _verbs: dict[str, str]
 
-    def launch_command(self, session_mode: SessionMode) -> str:
+    def launch_command(self, session_mode: SessionMode, extra_args: str = "") -> str:
         """Bash command that starts this harness in the requested mode.
 
+        `extra_args` is spliced in after the executable in EVERY position it
+        appears, including the fallback arm of the continue/resume verbs, so a
+        flag cannot be silently dropped when the first arm fails.
+
         Unknown modes fall back to 'continue' (matching prior a-team behavior)."""
-        return self._verbs.get(session_mode, self._verbs["continue"])
+        template = self._verbs.get(session_mode, self._verbs["continue"])
+        exe = self.executable + (f" {extra_args}" if extra_args else "")
+        return template.format(exe=exe)
+
+    def remote_control_args(self, session_name: str | None) -> str:
+        """Flag that starts the session with Remote Control on, under a name.
+
+        Claude Code only: Codex has no equivalent, and returning "" keeps the
+        caller free of `if harness == ...` checks. Naming the session at launch
+        is what stops remotely-started agents showing up in the phone app as
+        auto-generated `hostname-ancient-wirth` strings."""
+        if not session_name or self.key != "claude":
+            return ""
+        return f"--remote-control {shlex.quote(session_name)}"
 
     def is_available(self) -> bool:
         """True if this harness's executable is on PATH."""
@@ -65,9 +82,9 @@ CLAUDE = Harness(
     executable="claude",
     config_env_var="CLAUDE_CONFIG_DIR",
     _verbs={
-        "new": "claude",
-        "continue": "{ claude --continue || claude; }",
-        "resume": "{ claude --resume || claude; }",
+        "new": "{exe}",
+        "continue": "{{ {exe} --continue || {exe}; }}",
+        "resume": "{{ {exe} --resume || {exe}; }}",
     },
 )
 
@@ -82,9 +99,9 @@ CODEX = Harness(
     executable="codex",
     config_env_var="CODEX_HOME",
     _verbs={
-        "new": "codex",
-        "continue": "{ codex resume --last || codex; }",
-        "resume": "{ codex resume || codex; }",
+        "new": "{exe}",
+        "continue": "{{ {exe} resume --last || {exe}; }}",
+        "resume": "{{ {exe} resume || {exe}; }}",
     },
 )
 

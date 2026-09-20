@@ -88,7 +88,13 @@ def _build_command(
     a Claude config dir can never leak into Codex."""
     seq = f"\\e]0;{display_name}\\a\\e]1;{display_name}\\a\\e]2;{display_name}\\a"
     h = host if host is not None else _hosts.LOCAL
-    engine_cmd = harness.launch_command(session_mode)
+    # Remote agents start with Remote Control on, named after the agent. Two
+    # reasons: the session is then reachable from the phone and by SendMessage
+    # from other sessions, and it carries a real name instead of the
+    # auto-generated `hostname-ancient-wirth` the runtime would pick. Local
+    # agents are left alone: you are already sitting at that machine.
+    rc_args = harness.remote_control_args(display_name) if h.is_remote else ""
+    engine_cmd = harness.launch_command(session_mode, rc_args)
     # Account config is a local-machine concept (CLAUDE_CONFIG_DIR). A remote
     # host runs under its OWN login, so we never export it across the SSH hop.
     env = harness.env_prefix(config_dir) if not h.is_remote else ""

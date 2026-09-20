@@ -426,3 +426,69 @@ class HostInRegistry(_TempRegistry):
     def test_prepare_path_local_rejects_missing(self):
         with self.assertRaises(ValueError):
             config.prepare_path(str(self.workdir / "nope"), "local", create=False)
+
+
+class RemoteControlNaming(unittest.TestCase):
+    """Remote agents launch with Remote Control on, named after the agent."""
+
+    REMOTE = None  # set in setUp
+
+    def setUp(self):
+        from a_team import hosts
+        self.REMOTE = hosts.Host(key="srv", label="srv (remote)", ssh_alias="srv")
+
+    def test_claude_remote_control_args(self):
+        self.assertEqual(
+            harness.CLAUDE.remote_control_args("Build Agent"),
+            "--remote-control 'Build Agent'",
+        )
+
+    def test_codex_has_no_remote_control(self):
+        self.assertEqual(harness.CODEX.remote_control_args("Build Agent"), "")
+
+    def test_empty_name_yields_no_flag(self):
+        self.assertEqual(harness.CLAUDE.remote_control_args(None), "")
+        self.assertEqual(harness.CLAUDE.remote_control_args(""), "")
+
+    def test_flag_lands_on_both_arms_of_fallback(self):
+        """The fallback arm must carry the flag too, or a failed --continue
+        would silently start an unnamed, unreachable session."""
+        # A name with a space, so shlex.quote actually quotes it (it leaves a
+        # bare word like "Demo" unquoted, which is what tripped this test first).
+        rc = harness.CLAUDE.remote_control_args("Road Demo")
+        cmd = harness.CLAUDE.launch_command("continue", rc)
+        self.assertEqual(cmd.count("--remote-control 'Road Demo'"), 2)
+
+    def test_launch_command_unchanged_without_extra_args(self):
+        """Back-compat: existing callers get byte-identical commands."""
+        self.assertEqual(harness.CLAUDE.launch_command("new"), "claude")
+        self.assertEqual(
+            harness.CLAUDE.launch_command("continue"),
+            "{ claude --continue || claude; }",
+        )
+        self.assertEqual(
+            harness.CODEX.launch_command("continue"),
+            "{ codex resume --last || codex; }",
+        )
+
+    def test_remote_spawn_includes_named_remote_control(self):
+        cmd = spawn._build_command(
+            "Build Agent", "~/code/example-project", harness.CLAUDE, "continue",
+            host=self.REMOTE, session="sidekick",
+        )
+        # The name is shell-escaped through the tmux + ssh quoting layers, so
+        # assert on the flag and the name separately rather than a literal
+        # quoted pair that the escaping breaks up.
+        self.assertIn("--remote-control", cmd)
+        self.assertIn("Build Agent", cmd)
+
+    def test_local_spawn_does_not_force_remote_control(self):
+        cmd = spawn._build_command(
+            "Toolkit", "/tmp/proj", harness.CLAUDE, "continue",
+            host=None, session="toolkit",
+        )
+        self.assertNotIn("--remote-control", cmd)
+
+
+if __name__ == "__main__":
+    unittest.main()
