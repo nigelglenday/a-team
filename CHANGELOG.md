@@ -4,6 +4,16 @@ All notable changes to `a-team` are documented here.
 
 This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-09-20
+
+- **Agents can live on another machine.** A `[hosts]` table maps host keys to SSH targets, and an agent's `host` field says where its folder and session live. Remote agents run in `tmux new-session -A` on that host so they outlive the window, and attach over `mosh` with an `ssh -t` fallback. Hosts are configured, never hardcoded. `a-team new --host <key>` creates the folder on that machine; `a-team resolve --json` exposes `host` and `ssh` so shell helpers can route by host.
+- **`a-team config default-host <key>`.** Sets where `a-team new` puts agents when `--host` is omitted, so a server-first setup needs no flags. A remote agent given no path now defaults to `~/agents/<slug>` on that machine, mirroring the local convention instead of erroring.
+- **Remote sessions launch with Remote Control on, named after the agent.** Without it, a session on another machine is hard to identify (the runtime picks `hostname-ancient-wirth`) and unaddressable by other sessions, which can only reach it once Remote Control is active. The launch verbs are compound (`{ claude --continue || claude; }`), so the executable is now templated and extra args are spliced into every position: appending to the string would have put the flag on the first arm only, and a failed `--continue` would have fallen back to an unnamed, unreachable session. Codex gets no flag; local agents are untouched.
+- **Harness adapter.** Claude Code and Codex are selected per agent via a `harness` field, isolating executable, launch verbs and config env var so `CLAUDE_CONFIG_DIR` can never leak into Codex.
+- **Fix:** `a-team new` passed the raw `--host` value to the registry instead of the normalized key, so an alias like `this` was stored verbatim.
+- **[docs/remote-agents.md](docs/remote-agents.md)** covers setup and the failure modes: macOS runs SSH logins in the `Background` security session, which cannot read the keychain, so Claude Code falls back to API-key mode and Remote Control goes silently unavailable. tmux panes inherit the tmux *server's* session, so starting it once from a GUI terminal fixes every SSH-created session; includes the `Aqua` LaunchAgent. Also per-folder workspace trust, and MCP servers / sync clients / credentials not following an agent across machines.
+- **`examples/atx`**, a cold-start helper that skips the TUI: resolve an agent from the registry, start it on its own host under its own name, attach over mosh.
+
 ## [0.4.2] - 2026-07-08
 
 - **Fix: new agents could be scaffolded in the wrong place.** A bare/relative folder entered in the picker resolved against the current working directory — so running `a-team` from an arbitrary session folder (e.g. a Google Drive directory) silently created the agent there. Relative paths now anchor to `default_parent`.
