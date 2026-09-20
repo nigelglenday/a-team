@@ -329,19 +329,38 @@ def prompt_new_agent(
     # back to a clipboard directory (Finder: Copy as Pathname) when there's no
     # default_parent — otherwise a stale clipboard silently picks the folder.
     from .config import slugify
+    from .hosts import DEFAULT_HOST, all_hosts
 
-    if not default_path and default_parent:
-        default_path = str(Path(default_parent).expanduser() / slugify(name))
-
-    if not default_path:
-        default_path = _clipboard_path_or_empty()
-
-    path = questionary.path(
-        "Folder:",
-        default=default_path or "",
-        only_directories=True,
+    # Where the agent lives. Asked before the folder, because a remote host
+    # means the folder is a path on THAT machine, not this one.
+    host = questionary.select(
+        "Host:",
+        choices=[questionary.Choice(title=h.label, value=h.key) for h in all_hosts().values()],
+        default=DEFAULT_HOST,
         style=_picker_style,
     ).ask()
+    if host is None:
+        return None
+
+    if host == DEFAULT_HOST:
+        if not default_path and default_parent:
+            default_path = str(Path(default_parent).expanduser() / slugify(name))
+        if not default_path:
+            default_path = _clipboard_path_or_empty()
+        path = questionary.path(
+            "Folder:",
+            default=default_path or "",
+            only_directories=True,
+            style=_picker_style,
+        ).ask()
+    else:
+        # Remote: a local directory browser would be meaningless here, so take
+        # plain text and let the folder be created on that machine.
+        path = questionary.text(
+            f"Folder on {all_hosts()[host].label} (created if missing):",
+            default=f"~/agents/{slugify(name)}",
+            style=_picker_style,
+        ).ask()
     if not path:
         return None
 
@@ -424,6 +443,7 @@ def prompt_new_agent(
         "kind": kind,
         "category": category,
         "harness": harness,
+        "host": host,
     }
     if account != category_default:
         result["account"] = account  # explicit override

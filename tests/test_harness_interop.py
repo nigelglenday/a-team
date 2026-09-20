@@ -334,3 +334,95 @@ class MigrateRegistry(_TempRegistry):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HostRouting(unittest.TestCase):
+    """Where an agent lives, and how that changes the launch command.
+
+    Remote hosts are user config, so these build a Host directly rather than
+    assuming any particular machine exists."""
+
+    REMOTE = None  # set in setUp
+
+    def setUp(self):
+        from a_team import hosts
+        self.REMOTE = hosts.Host(key="server", label="server (remote)", ssh_alias="myserver")
+
+    def test_local_is_default_and_not_remote(self):
+        from a_team import hosts
+        self.assertEqual(hosts.normalize_key(None), "local")
+        self.assertEqual(hosts.normalize_key("here"), "local")
+        self.assertFalse(hosts.LOCAL.is_remote)
+        self.assertTrue(hosts.LOCAL.reachable())
+        self.assertTrue(self.REMOTE.is_remote)
+
+    def test_unknown_host_rejected(self):
+        from a_team import hosts
+        with self.assertRaises(ValueError):
+            hosts.normalize_key("definitely-not-configured")
+
+    def test_local_launch_command_is_plain_cd(self):
+        from a_team import hosts
+        cmd = hosts.LOCAL.launch_command("/tmp/proj", "claude", "myid")
+        self.assertEqual(cmd, "cd /tmp/proj && claude")
+        self.assertNotIn("tmux", cmd)
+
+    def test_remote_launch_uses_tmux_and_attaches(self):
+        cmd = self.REMOTE.launch_command("/remote/agents/x", "claude", "myid")
+        self.assertIn("tmux new-session -A -s", cmd)  # attach-or-create survives disconnect
+        self.assertIn("mosh myserver", cmd)
+        self.assertIn("ssh -t myserver", cmd)  # fallback present
+        self.assertIn("myid", cmd)
+
+    def test_build_command_remote_has_no_local_account_export(self):
+        from a_team import harness, spawn
+        cmd = spawn._build_command(
+            "Agent", "/remote/path", harness.CLAUDE, "continue",
+            config_dir="/local/acct", host=self.REMOTE, session="sid",
+        )
+        self.assertNotIn("CLAUDE_CONFIG_DIR", cmd)  # must not cross the ssh hop
+        self.assertIn("tmux new-session -A -s", cmd)
+
+    def test_build_command_local_still_exports_account(self):
+        from a_team import harness, hosts, spawn
+        cmd = spawn._build_command(
+            "Agent", "/local/path", harness.CLAUDE, "continue",
+            config_dir="/local/acct", host=hosts.LOCAL, session="sid",
+        )
+        self.assertIn("export CLAUDE_CONFIG_DIR=/local/acct", cmd)
+
+
+class HostInRegistry(_TempRegistry):
+    def test_legacy_entry_defaults_to_local(self):
+        self.write('''
+            [[agent]]
+            name = "Old"
+            path = "%s"
+        ''' % self.workdir)
+        self.assertEqual(config.load_agents_normalized()[0]["host"], "local")
+
+    def test_add_local_agent_records_host(self):
+        a = config.add_agent("Loc", str(self.workdir))
+        self.assertEqual(a["host"], "local")
+        self.assertIn('host = "local"', self.reg.read_text())
+
+    def test_prepare_path_local_creates_when_asked(self):
+        target = str(self.workdir / "made")
+        out = config.prepare_path(target, "local", create=True)
+        self.assertTrue(Path(out).is_dir())
+
+    def test_hosts_table_defines_remote_hosts(self):
+        from a_team import hosts
+        self.write("""
+            [hosts]
+            server = "myserver"
+        """)
+        known = hosts.all_hosts()
+        self.assertIn("local", known)
+        self.assertIn("server", known)
+        self.assertEqual(known["server"].ssh_alias, "myserver")
+        self.assertTrue(known["server"].is_remote)
+
+    def test_prepare_path_local_rejects_missing(self):
+        with self.assertRaises(ValueError):
+            config.prepare_path(str(self.workdir / "nope"), "local", create=False)
