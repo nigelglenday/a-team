@@ -332,8 +332,6 @@ class MigrateRegistry(_TempRegistry):
         self.assertIsNone(report["backup"])  # no backup when no changes
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class HostRouting(unittest.TestCase):
@@ -488,6 +486,56 @@ class RemoteControlNaming(unittest.TestCase):
             host=None, session="toolkit",
         )
         self.assertNotIn("--remote-control", cmd)
+
+
+
+
+class RemoteStatus(unittest.TestCase):
+    """Status must not report a remote agent as stopped just because local
+    pgrep/lsof cannot see it, and must never hand a remote pid to os.kill()."""
+
+    def setUp(self):
+        from a_team import status
+        status._remote_cache.clear()
+
+    def test_running_pids_is_empty_for_remote_agents(self):
+        """The load-bearing safety rule. running_pids() feeds kill_pids(), which
+        calls os.kill() on THIS machine: a remote pid would signal whatever
+        unrelated local process happens to hold that number."""
+        from a_team import status
+        agent = {"name": "Build", "path": "~/agents/build", "host": "server",
+                 "harness": "claude"}
+        self.assertEqual(status.running_pids(agent), [])
+
+    def test_unreachable_host_reports_unknown_not_stopped(self):
+        from a_team import status
+        agent = {"name": "Build", "path": "~/agents/build", "host": "nosuchhost",
+                 "harness": "claude"}
+        state, n = status.agent_state(agent)
+        self.assertEqual(state, "unknown")
+        self.assertEqual(n, 0)
+
+    def test_remote_sessions_returns_none_when_host_unknown(self):
+        """None means 'could not tell'. Flattening it to {} would make the UI
+        claim nothing is running."""
+        from a_team import status
+        self.assertIsNone(status.remote_sessions("nosuchhost"))
+
+    def test_remote_path_expands_against_the_remote_home(self):
+        """A registry path like ~/agents/x must expand against the REMOTE home,
+        not this machine's, or it never matches the probed cwd."""
+        from a_team import status
+        self.assertEqual(
+            status._match_path("~/agents/build", "/Users/someoneelse"),
+            "/Users/someoneelse/agents/build",
+        )
+
+    def test_local_agent_state_still_works(self):
+        from a_team import status
+        agent = {"name": "Local", "path": "/tmp/definitely-not-running",
+                 "host": "local", "harness": "claude"}
+        state, n = status.agent_state(agent)
+        self.assertEqual((state, n), ("stopped", 0))
 
 
 if __name__ == "__main__":

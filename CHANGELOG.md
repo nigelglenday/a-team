@@ -4,6 +4,13 @@ All notable changes to `a-team` are documented here.
 
 This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-09-20
+
+- **Fix: remote agents always showed as stopped.** 0.5.0 let agents live on another machine but left status detection local-only (`pgrep` + `lsof`), so every remote agent read as not running even while it was. `status.agent_state()` now probes the agent's host over SSH, cached for a few seconds so the TUI does not re-SSH on every repaint.
+- **An unreachable host reports `unknown` (`?`), not `stopped`.** Saying "stopped" because SSH timed out is a lie, and "is it running?" is the question the tool exists to answer.
+- **`running_pids()` returns `[]` for remote agents, deliberately.** Its result feeds `kill_pids()`, which calls `os.kill()` on the local machine: returning a remote pid would have signalled whatever unrelated local process happened to hold that number. Stopping a remote agent has to go over SSH and is not offered here.
+- Remote registry paths keep a literal `~` and are expanded against the *remote* home when matching probed working directories.
+
 ## [0.5.0] - 2026-09-20
 
 - **Agents can live on another machine.** A `[hosts]` table maps host keys to SSH targets, and an agent's `host` field says where its folder and session live. Remote agents run in `tmux new-session -A` on that host so they outlive the window, and attach over `mosh` with an `ssh -t` fallback. Hosts are configured, never hardcoded. `a-team new --host <key>` creates the folder on that machine; `a-team resolve --json` exposes `host` and `ssh` so shell helpers can route by host.
