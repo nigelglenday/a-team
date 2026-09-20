@@ -174,6 +174,7 @@ def resolve_cmd(identifier: str, as_json: bool, field: str | None) -> None:
             "path": agent["path"],
             "harness": agent["harness"],
             "host": agent["host"],
+            "ssh": config.resolve_host(agent).ssh_alias,
         }))
     elif field:
         click.echo(agent[field])
