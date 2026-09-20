@@ -1,0 +1,108 @@
+#!/bin/bash
+# Cold-start a registered a-team agent without the TUI.
+# `atx <agent>` opens it on whichever host it is registered to; `atx` lists.
+#
+# Why this exists: the a-team registry is the thing that knows an agent's folder,
+# host and harness. The picker UI on top of it is optional. Once an agent is
+# running on the server it is reachable from the phone (Remote Control) and from
+# other sessions (SendMessage), so the only job left for the terminal is the
+# COLD START: get the right session running, on the right machine, correctly named.
+#
+# Usage:
+#   atx                 list registered agents
+#   atx <agent>         start (or attach to) that agent and attach this terminal
+#   atx <agent> -d      start it detached, do not attach (fire-and-forget)
+#   atx -l <agent>      show where it lives, start nothing
+#
+# Remote agents run inside tmux on their host, so they survive this terminal
+# closing, and start with Remote Control on under the agent's own name.
+
+set -euo pipefail
+
+AT=$(command -v a-team) || { echo "a-team not found on PATH" >&2; exit 1; }
+
+usage() { sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; }
+
+DETACH=0
+LOOKUP=0
+AGENT=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -d|--detach) DETACH=1; shift ;;
+    -l|--where)  LOOKUP=1; shift ;;
+    -h|--help)   usage; exit 0 ;;
+    -*) echo "unknown option: $1" >&2; exit 1 ;;
+    *) [ -z "$AGENT" ] && AGENT="$1"; shift ;;
+  esac
+done
+
+if [ -z "$AGENT" ]; then
+  "$AT" ls
+  exit 0
+fi
+
+# One resolver, the registry. Never guess a path or a host here.
+if ! JSON=$("$AT" resolve "$AGENT" --json 2>/dev/null) || [ "${JSON#\{}" = "$JSON" ]; then
+  echo "no such agent: $AGENT" >&2
+  echo "try: atx        (to list)" >&2
+  exit 1
+fi
+
+field() { printf '%s' "$JSON" | sed -n "s/.*\"$1\": *\"\([^\"]*\)\".*/\1/p"; }
+
+ID=$(field id)
+NAME=$(field name)
+PATH_=$(field path)
+HOST=$(field host)
+SSH_T=$(field ssh)
+HARNESS=$(field harness)
+[ -n "$HARNESS" ] || HARNESS=claude
+
+if [ "$LOOKUP" -eq 1 ]; then
+  printf '  %-10s %s\n' id "$ID" name "$NAME" host "${HOST:-local}" path "$PATH_" harness "$HARNESS"
+  [ -n "$SSH_T" ] && printf '  %-10s %s\n' ssh "$SSH_T"
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Local: just cd and run. You are already at this machine.
+# ---------------------------------------------------------------------------
+if [ -z "$SSH_T" ] || [ "${HOST:-local}" = "local" ]; then
+  DIR="${PATH_/#\~/$HOME}"
+  [ -d "$DIR" ] || { echo "folder missing on this machine: $DIR" >&2; exit 1; }
+  echo "starting $NAME locally in $DIR"
+  cd "$DIR" && exec "$HARNESS"
+fi
+
+# ---------------------------------------------------------------------------
+# Remote: tmux on that host, so it outlives this terminal.
+#   --remote-control "<name>" => reachable from the phone and by SendMessage,
+#   and named properly instead of the runtime's `hostname-ancient-wirth`.
+# Codex has no Remote Control flag, so it is omitted for that harness.
+# ---------------------------------------------------------------------------
+RC=""
+[ "$HARNESS" = "claude" ] && RC="--remote-control $(printf '%q' "$NAME")"
+
+REMOTE_CMD="cd $(printf '%q' "$PATH_") && $HARNESS $RC"
+TMUX_CMD="tmux has-session -t $(printf '%q' "$ID") 2>/dev/null || \
+tmux new-session -d -s $(printf '%q' "$ID") -c $(printf '%q' "$PATH_") \
+$(printf '%q' "PATH=/opt/homebrew/bin:\$PATH; $REMOTE_CMD")"
+
+echo "starting $NAME on $HOST ($PATH_)"
+ssh -o ConnectTimeout=10 "$SSH_T" "PATH=/opt/homebrew/bin:\$PATH; $TMUX_CMD" \
+  || { echo "could not reach $HOST (ssh $SSH_T)" >&2; exit 1; }
+
+if [ "$DETACH" -eq 1 ]; then
+  echo "running detached on $HOST. Reach it from:"
+  echo "  the Claude phone app  ->  Code > Session list > \"$NAME\""
+  echo "  this terminal         ->  atx $AGENT"
+  exit 0
+fi
+
+# Attach. mosh survives flaky wifi and roaming; ssh is the fallback.
+exec_attach="tmux attach -t $(printf '%q' "$ID")"
+if command -v mosh >/dev/null 2>&1; then
+  mosh "$SSH_T" -- $exec_attach || ssh -t "$SSH_T" "$exec_attach"
+else
+  ssh -t "$SSH_T" "$exec_attach"
+fi
