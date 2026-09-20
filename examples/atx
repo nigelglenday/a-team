@@ -10,9 +10,16 @@
 #
 # Usage:
 #   atx                 list registered agents
-#   atx <agent>         start (or attach to) that agent and attach this terminal
-#   atx <agent> -d      start it detached, do not attach (fire-and-forget)
+#   atx <agent>         attach to that agent's session, starting it if needed
+#   atx <agent> -n      start an ADDITIONAL parallel session in the same folder
+#   atx <agent> -s N    attach to parallel session N (1 = the first one)
+#   atx <agent> -d      start detached, do not attach (fire-and-forget)
+#   atx <agent> -L      list this agent's running sessions
 #   atx -l <agent>      show where it lives, start nothing
+#
+# Parallel sessions: an agent can have several chats open in the same folder.
+# The first is the tmux session `<id>`, extras are `<id>-2`, `<id>-3`, ... and
+# are named "<Name> 2", "<Name> 3" in the phone app so they stay tellable apart.
 #
 # Remote agents run inside tmux on their host, so they survive this terminal
 # closing, and start with Remote Control on under the agent's own name.
@@ -25,11 +32,17 @@ usage() { sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; }
 
 DETACH=0
 LOOKUP=0
+NEWSESS=0
+LISTSESS=0
+PICK=""
 AGENT=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -d|--detach) DETACH=1; shift ;;
     -l|--where)  LOOKUP=1; shift ;;
+    -n|--new)    NEWSESS=1; shift ;;
+    -L|--list)   LISTSESS=1; shift ;;
+    -s|--session) PICK="$2"; shift 2 ;;
     -h|--help)   usage; exit 0 ;;
     -*) echo "unknown option: $1" >&2; exit 1 ;;
     *) [ -z "$AGENT" ] && AGENT="$1"; shift ;;
@@ -80,27 +93,60 @@ fi
 #   and named properly instead of the runtime's `hostname-ancient-wirth`.
 # Codex has no Remote Control flag, so it is omitted for that harness.
 # ---------------------------------------------------------------------------
-RC=""
-[ "$HARNESS" = "claude" ] && RC="--remote-control $(printf '%q' "$NAME")"
-
-REMOTE_CMD="cd $(printf '%q' "$PATH_") && $HARNESS $RC"
-TMUX_CMD="tmux has-session -t $(printf '%q' "$ID") 2>/dev/null || \
-tmux new-session -d -s $(printf '%q' "$ID") -c $(printf '%q' "$PATH_") \
-$(printf '%q' "PATH=/opt/homebrew/bin:\$PATH; $REMOTE_CMD")"
-
-echo "starting $NAME on $HOST ($PATH_)"
-ssh -o ConnectTimeout=10 "$SSH_T" "PATH=/opt/homebrew/bin:\$PATH; $TMUX_CMD" \
+# Which of this agent's sessions are running there? (`<id>`, `<id>-2`, ...)
+EXISTING=$(ssh -o ConnectTimeout=10 "$SSH_T" \
+  "PATH=/opt/homebrew/bin:\$PATH; tmux ls 2>/dev/null | cut -d: -f1" \
+  | grep -E "^${ID}(-[0-9]+)?$" | sort) \
   || { echo "could not reach $HOST (ssh $SSH_T)" >&2; exit 1; }
+
+if [ "$LISTSESS" -eq 1 ]; then
+  if [ -z "$EXISTING" ]; then echo "no running sessions for $NAME on $HOST"; else
+    echo "$NAME sessions on $HOST:"
+    i=1; for s in $EXISTING; do
+      [ "$s" = "$ID" ] && echo "  $i. $s   (atx $AGENT)" || echo "  $i. $s   (atx $AGENT -s $i)"
+      i=$((i+1))
+    done
+  fi
+  exit 0
+fi
+
+# Choose the target session name.
+if [ -n "$PICK" ]; then
+  SESS=$(echo "$EXISTING" | sed -n "${PICK}p")
+  [ -n "$SESS" ] || { echo "$NAME has no session $PICK (try: atx $AGENT -L)" >&2; exit 1; }
+  RC_NAME="$NAME"; [ "$SESS" != "$ID" ] && RC_NAME="$NAME ${SESS##*-}"
+elif [ "$NEWSESS" -eq 1 ]; then
+  # Next free suffix, so a second chat never collides with the first.
+  n=2
+  while echo "$EXISTING" | grep -qx "${ID}-${n}"; do n=$((n+1)); done
+  SESS="${ID}-${n}"; RC_NAME="$NAME $n"
+else
+  SESS="$ID"; RC_NAME="$NAME"
+fi
+
+RC=""
+[ "$HARNESS" = "claude" ] && RC="--remote-control $(printf '%q' "$RC_NAME")"
+REMOTE_CMD="cd $(printf '%q' "$PATH_") && $HARNESS $RC"
+
+if echo "$EXISTING" | grep -qx "$SESS"; then
+  echo "attaching to $RC_NAME on $HOST ($SESS)"
+else
+  echo "starting $RC_NAME on $HOST ($PATH_)"
+  ssh -o ConnectTimeout=10 "$SSH_T" "PATH=/opt/homebrew/bin:\$PATH; \
+tmux new-session -d -s $(printf '%q' "$SESS") -c $(printf '%q' "$PATH_") \
+$(printf '%q' "PATH=/opt/homebrew/bin:\$PATH; $REMOTE_CMD")" \
+    || { echo "could not start the session on $HOST" >&2; exit 1; }
+fi
 
 if [ "$DETACH" -eq 1 ]; then
   echo "running detached on $HOST. Reach it from:"
-  echo "  the Claude phone app  ->  Code > Session list > \"$NAME\""
-  echo "  this terminal         ->  atx $AGENT"
+  echo "  the Claude phone app  ->  Code > Session list > \"$RC_NAME\""
+  echo "  this terminal         ->  atx $AGENT${PICK:+ -s $PICK}"
   exit 0
 fi
 
 # Attach. mosh survives flaky wifi and roaming; ssh is the fallback.
-exec_attach="tmux attach -t $(printf '%q' "$ID")"
+exec_attach="tmux attach -t $(printf '%q' "$SESS")"
 if command -v mosh >/dev/null 2>&1; then
   mosh "$SSH_T" -- $exec_attach || ssh -t "$SSH_T" "$exec_attach"
 else
