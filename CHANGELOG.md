@@ -4,7 +4,13 @@ All notable changes to `a-team` are documented here.
 
 This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.4] - 2026-09-20
+## [0.5.5] - 2026-09-20
+
+- **`atx <agent> --label <name>`: named parallel sessions.** Numbered sessions ("Agent 2", "Agent 3") stop being useful once several are open for different clients or topics; on a phone they are indistinguishable. A label gives the session its own tmux name (`<id>-<slug>`) and Remote Control title (`<Name>: <Label>`). Re-running the same label **attaches** to that session rather than creating another, so it doubles as the way back into a given piece of work.
+- Labels work for local agents too, where there is no tmux to attach to: the label titles the session and enables Remote Control under that name, so the same session can be picked up from a phone later.
+- `-L` now prints the exact command to re-enter each session, including labelled ones.
+
+
 
 - **Fix: `atx` reported a reachable host as unreachable once an agent had no sessions.** The session lookup piped `ssh` into `grep`, and under `set -o pipefail` a grep that matches nothing makes the whole pipeline non-zero, which the error handler read as an SSH failure. So stopping an agent's last session made the next `atx <agent>` claim "could not reach <host>" instead of starting it. The ssh call and the filtering are now separate steps.
 

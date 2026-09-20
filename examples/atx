@@ -12,6 +12,9 @@
 #   atx                 list registered agents
 #   atx <agent>         attach to that agent's session, starting it if needed
 #   atx <agent> -n      start an ADDITIONAL parallel session in the same folder
+#   atx <agent> -n --label Preload
+#                       ... and name it after the customer/topic, so the phone app
+#                       shows "Name: Preload" instead of "Name 2"
 #   atx <agent> -s N    attach to parallel session N (1 = the first one)
 #   atx <agent> -d      start detached, do not attach (fire-and-forget)
 #   atx <agent> -L      list this agent's running sessions
@@ -34,6 +37,7 @@ DETACH=0
 LOOKUP=0
 NEWSESS=0
 LISTSESS=0
+LABEL=""
 PICK=""
 AGENT=""
 while [ $# -gt 0 ]; do
@@ -41,6 +45,7 @@ while [ $# -gt 0 ]; do
     -d|--detach) DETACH=1; shift ;;
     -l|--where)  LOOKUP=1; shift ;;
     -n|--new)    NEWSESS=1; shift ;;
+    --label)     LABEL="$2"; NEWSESS=1; shift 2 ;;
     -L|--list)   LISTSESS=1; shift ;;
     -s|--session) PICK="$2"; shift 2 ;;
     -h|--help)   usage; exit 0 ;;
@@ -83,8 +88,23 @@ fi
 if [ -z "$SSH_T" ] || [ "${HOST:-local}" = "local" ]; then
   DIR="${PATH_/#\~/$HOME}"
   [ -d "$DIR" ] || { echo "folder missing on this machine: $DIR" >&2; exit 1; }
-  echo "starting $NAME locally in $DIR"
-  cd "$DIR" && exec "$HARNESS"
+
+  # A label names the session even locally. Locally there is no tmux to attach
+  # to (you are at the machine; each window holds one session), so the label's
+  # job is identification: it titles the session and, for Claude, turns on
+  # Remote Control under that name so the same customer session is reachable
+  # from the phone later. Without a label, nothing changes.
+  RC=""
+  if [ -n "$LABEL" ] && [ "$HARNESS" = "claude" ]; then
+    RC="--remote-control $(printf '%q' "$NAME: $LABEL")"
+    echo "starting $NAME: $LABEL locally in $DIR"
+  elif [ -n "$LABEL" ]; then
+    echo "note: --label needs the claude harness to name a session; ignoring" >&2
+    echo "starting $NAME locally in $DIR"
+  else
+    echo "starting $NAME locally in $DIR"
+  fi
+  cd "$DIR" && exec "$HARNESS" ${RC:+$RC}
 fi
 
 # ---------------------------------------------------------------------------
@@ -100,13 +120,20 @@ fi
 RAW=$(ssh -o ConnectTimeout=10 "$SSH_T" \
   "PATH=/opt/homebrew/bin:\$PATH; tmux ls 2>/dev/null | cut -d: -f1") \
   || { echo "could not reach $HOST (ssh $SSH_T)" >&2; exit 1; }
-EXISTING=$(printf '%s\n' "$RAW" | grep -E "^${ID}(-[0-9]+)?$" | sort || true)
+EXISTING=$(printf '%s\n' "$RAW" | grep -E "^${ID}(-[a-z0-9][a-z0-9-]*)?$" | sort || true)
 
 if [ "$LISTSESS" -eq 1 ]; then
   if [ -z "$EXISTING" ]; then echo "no running sessions for $NAME on $HOST"; else
     echo "$NAME sessions on $HOST:"
     i=1; for s in $EXISTING; do
-      [ "$s" = "$ID" ] && echo "  $i. $s   (atx $AGENT)" || echo "  $i. $s   (atx $AGENT -s $i)"
+      if [ "$s" = "$ID" ]; then echo "  $i. $s   (atx $AGENT)"
+      else
+        sfx="${s#${ID}-}"
+        case "$sfx" in
+          [0-9]*) echo "  $i. $s   (atx $AGENT -s $i)" ;;
+          *)      echo "  $i. $s   (atx $AGENT --label $sfx)" ;;
+        esac
+      fi
       i=$((i+1))
     done
   fi
@@ -118,6 +145,14 @@ if [ -n "$PICK" ]; then
   SESS=$(echo "$EXISTING" | sed -n "${PICK}p")
   [ -n "$SESS" ] || { echo "$NAME has no session $PICK (try: atx $AGENT -L)" >&2; exit 1; }
   RC_NAME="$NAME"; [ "$SESS" != "$ID" ] && RC_NAME="$NAME ${SESS##*-}"
+elif [ -n "$LABEL" ]; then
+  # Named session: one per customer/topic. Reuse it if it already exists, so
+  # `atx <agent> --label Preload` is the way back into that customer's session
+  # rather than a way to accumulate duplicates of it.
+  SLUG=$(printf '%s' "$LABEL" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' \
+         | sed 's/--*/-/g; s/^-//; s/-$//')
+  [ -n "$SLUG" ] || { echo "--label must contain letters or digits" >&2; exit 1; }
+  SESS="${ID}-${SLUG}"; RC_NAME="$NAME: $LABEL"
 elif [ "$NEWSESS" -eq 1 ]; then
   # Next free suffix, so a second chat never collides with the first.
   n=2
