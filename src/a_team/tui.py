@@ -187,6 +187,7 @@ class ATeamTUI(App):
         self._agents: list[dict] = []
         self._sessions: dict[str, list[int]] = {}
         self._counts: dict[str, int] = {}
+        self._states: dict[str, tuple[str, int]] = {}
         self._row_agents: list[dict | None] = []
 
     def compose(self) -> ComposeResult:
@@ -210,7 +211,10 @@ class ATeamTUI(App):
         """Gather live state off the UI thread, then hand it to _render."""
         sessions = status.live_sessions()
         counts = {a["name"]: status.inbox_count(a) for a in self._agents}
-        self.call_from_thread(self._render, sessions, counts)
+        # agent_state covers remote hosts too (one cached SSH probe per host),
+        # so an agent running on another machine no longer reads as stopped.
+        states = {a["name"]: status.agent_state(a) for a in self._agents}
+        self.call_from_thread(self._render, sessions, counts, states)
 
     def _visible(self) -> list[dict]:
         query = self.query_one(FilterInput).value.strip().lower()
@@ -224,7 +228,17 @@ class ATeamTUI(App):
             or query in a.get("category", "").lower()
         ]
 
-    def _render(self, sessions: dict[str, list[int]], counts: dict[str, int]) -> None:
+    def _render(
+        self,
+        sessions: dict[str, list[int]],
+        counts: dict[str, int],
+        states: dict[str, tuple[str, int]] | None = None,
+    ) -> None:
+        # states is optional so a re-render triggered by typing in the filter box
+        # reuses the last probe instead of SSHing on every keystroke.
+        if states is not None:
+            self._states = states
+        states = self._states
         self._sessions, self._counts = sessions, counts
         table = self.query_one(DataTable)
         cursor = table.cursor_row
@@ -240,12 +254,19 @@ class ATeamTUI(App):
             table.add_row(Text(""), Text(category.upper(), style="bold magenta"), "", "", "")
             self._row_agents.append(None)
             for agent in agents:
-                pids = status.running_pids(agent, sessions)
-                live_total += len(pids)
+                state, n = states.get(agent["name"], ("stopped", 0))
+                live_total += n
                 unread = counts.get(agent["name"], 0)
                 account = config.resolve_account(agent)
+                if state == "running":
+                    marker = Text(f"● {n}", style="bold green")
+                elif state == "unknown":
+                    # Host unreachable. Saying "stopped" here would be a lie.
+                    marker = Text(" ?", style="yellow")
+                else:
+                    marker = Text(" ·", style="dim")
                 table.add_row(
-                    Text(f"● {len(pids)}", style="bold green") if pids else Text(" ·", style="dim"),
+                    marker,
                     Text(f"  {agent['name']}"),
                     Text(f"⟨{account}⟩", style="yellow") if account != "personal" else Text(""),
                     Text(f"✉ {unread}", style="bold cyan") if unread else Text(""),
@@ -407,7 +428,7 @@ class ATeamTUI(App):
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if isinstance(event.input, FilterInput):
-            self._render(self._sessions, self._counts)
+            self._render(self._sessions, self._counts)  # reuses cached states
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if isinstance(event.input, FilterInput):
