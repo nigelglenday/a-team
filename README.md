@@ -1,6 +1,6 @@
 # a-team
 
-![Version](https://img.shields.io/badge/version-0.5.4-orange) ![License](https://img.shields.io/badge/license-MIT-yellow) ![Python](https://img.shields.io/badge/python-3.11%2B-blue) ![Platform](https://img.shields.io/badge/platform-macOS-black) ![Ghostty](https://img.shields.io/badge/terminal-Ghostty-orange) ![Termpaper](https://img.shields.io/badge/set-termpaper-cyan)
+![Version](https://img.shields.io/badge/version-0.5.5-orange) ![License](https://img.shields.io/badge/license-MIT-yellow) ![Python](https://img.shields.io/badge/python-3.11%2B-blue) ![Platform](https://img.shields.io/badge/platform-macOS-black) ![Ghostty](https://img.shields.io/badge/terminal-Ghostty-orange) ![Termpaper](https://img.shields.io/badge/set-termpaper-cyan)
 
 > *I love it when a plan comes together.*
 
@@ -76,6 +76,7 @@ In the TUI, `●` with a count means that many live sessions, `·` means stopped
 atx                             list registered agents
 atx <agent>                     attach to its session, starting it if needed
 atx <agent> -n                  start an ADDITIONAL parallel session
+atx <agent> --label Acme        a session named for a client or topic ("Name: Acme")
 atx <agent> -L                  list that agent's running sessions
 atx <agent> -s 3                attach to parallel session 3
 atx <agent> -d                  start detached, do not attach
