@@ -31,6 +31,7 @@ import subprocess
 import time
 
 from . import harness as _harness
+from . import hosts as _hosts
 
 
 _APPLESCRIPT = r'''
@@ -76,6 +77,8 @@ def _build_command(
     harness: _harness.Harness,
     session_mode: str,
     config_dir: str | None = None,
+    host: "_hosts.Host | None" = None,
+    session: str | None = None,
 ) -> str:
     r"""The plain bash command pasted into the new window. Single backslashes
     (``\\e``, ``\\a`` in source -> literal ``\e``, ``\a``) so printf emits real escapes.
@@ -84,15 +87,19 @@ def _build_command(
     per-account config export — and it exports only its OWN config variable, so
     a Claude config dir can never leak into Codex."""
     seq = f"\\e]0;{display_name}\\a\\e]1;{display_name}\\a\\e]2;{display_name}\\a"
-    env = harness.env_prefix(config_dir)
-    launch_cmd = harness.launch_command(session_mode)
+    h = host if host is not None else _hosts.LOCAL
+    engine_cmd = harness.launch_command(session_mode)
+    # Account config is a local-machine concept (CLAUDE_CONFIG_DIR). A remote
+    # host runs under its OWN login, so we never export it across the SSH hop.
+    env = harness.env_prefix(config_dir) if not h.is_remote else ""
+    body = h.launch_command(path, engine_cmd, session or "agent")
     return (
         "{ "
         f"{env}"
         f"( while :; do printf '{seq}'; sleep 1; done ) & "
         "TPID=$!; "
         'trap "kill $TPID 2>/dev/null" EXIT INT TERM HUP; '
-        f"cd {shlex.quote(path)} && {launch_cmd}; "
+        f"{body}; "
         "}"
     )
 
@@ -105,6 +112,8 @@ def open_agent(
     topic: str | None = None,
     config_dir: str | None = None,
     harness: str = _harness.DEFAULT_HARNESS,
+    host: str = _hosts.DEFAULT_HOST,
+    session: str | None = None,
 ) -> None:
     """Open a new Ghostty window for the agent under the chosen harness.
 
@@ -122,7 +131,16 @@ def open_agent(
     not on PATH, so a missing `codex` reports setup instead of a mangled window.
     """
     h = _harness.get(harness)
-    if not h.is_available():
+    target = _hosts.get(host)
+    if target.is_remote:
+        # The harness runs on the REMOTE box, so a local `which` proves nothing.
+        # What matters here is that we can reach the host at all.
+        if not target.reachable():
+            raise RuntimeError(
+                f"{target.label} is not reachable (check `ssh {target.ssh_alias}` "
+                f"and that Tailscale is up)."
+            )
+    elif not h.is_available():
         raise RuntimeError(
             f"{h.label} is not installed or not on PATH (need `{h.executable}`). "
             f"Install it or choose a different harness."
@@ -133,7 +151,9 @@ def open_agent(
         display_name = f"{name}: {topic}"
     else:
         display_name = name
-    command = _build_command(display_name, path, h, session_mode, config_dir)
+    command = _build_command(
+        display_name, path, h, session_mode, config_dir, host=target, session=session
+    )
 
     # Save the clipboard, set our command, paste it, restore. pbcopy via stdin
     # means the command never hits AppleScript escaping.
@@ -165,6 +185,8 @@ def open_all(agents: list[dict], delay_between: float = 1.0) -> None:
             agent["name"],
             agent["path"],
             harness=harness_key,
+            host=agent.get("host", _hosts.DEFAULT_HOST),
+            session=agent.get("id"),
             config_dir=config.resolve_config_dir(agent, harness=harness_key),
         )
         time.sleep(delay_between)

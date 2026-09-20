@@ -11,6 +11,7 @@ from typing import Literal
 import tomli_w
 
 from . import harness as _harness
+from . import hosts as _hosts
 
 _DEFAULT_CONFIG_PATH = Path.home() / ".config" / "a-team" / "agents.toml"
 
@@ -147,6 +148,16 @@ _DEFAULT_ACCOUNTS = {
 _DEFAULT_ACCOUNT_BY_CATEGORY: dict = {}
 
 
+def load_hosts_table() -> dict:
+    """The [hosts] table: host key -> ssh target. Empty if unset.
+
+    Remote hosts are user configuration, never hardcoded in source:
+        [hosts]
+        server = "myserver"
+    """
+    return _load_raw().get("hosts", {})
+
+
 def load_accounts() -> dict:
     """Account name -> CLAUDE_CONFIG_DIR. Defaults merged with agents.toml [accounts]."""
     return {**_DEFAULT_ACCOUNTS, **_load_raw().get("accounts", {})}
@@ -216,6 +227,7 @@ def _normalized(agents: list[dict]) -> list[dict]:
             b["id"] = candidate
             used.add(candidate)
         b["harness"] = _harness.normalize_key(b.get("harness"))
+        b["host"] = _hosts.normalize_key(b.get("host"))
         out.append(b)
     return out
 
@@ -264,6 +276,43 @@ def resolve_harness(agent: dict, override: str | None = None) -> _harness.Harnes
     default, else Claude. An override never mutates the saved default."""
     key = override if override else agent.get("harness")
     return _harness.get(key)
+
+
+def resolve_host(agent: dict, override: str | None = None) -> _hosts.Host:
+    """Where this agent lives: one-time override, else the saved host, else local."""
+    return _hosts.get(override if override else agent.get("host"))
+
+
+def prepare_path(path: str, host: str | None = None, *, create: bool = False) -> str:
+    """Validate (and optionally create) an agent folder on the right machine.
+
+    Local paths are expanded and resolved here. Remote paths are checked over SSH
+    on that host, never against this filesystem, and a leading `~` is expanded to
+    the *remote* home. Returns the path to store in the registry."""
+    h = _hosts.get(host)
+    if not h.is_remote:
+        resolved = Path(path).expanduser()
+        if create:
+            resolved.mkdir(parents=True, exist_ok=True)
+        resolved = resolved.resolve()
+        if not resolved.is_dir():
+            raise ValueError(f"path is not a directory: {path}")
+        return str(resolved)
+
+    if not h.reachable():
+        raise ValueError(f"host '{h.key}' is not reachable right now (check `ssh {h.ssh_alias}`)")
+    remote = path
+    if remote.startswith("~"):
+        home = h.run("printf %s \"$HOME\"").stdout.strip()
+        if not home:
+            raise ValueError(f"could not determine home directory on host '{h.key}'")
+        remote = home + remote[1:]
+    if not h.dir_exists(remote):
+        if not create:
+            raise ValueError(f"path does not exist on host '{h.key}': {remote}")
+        if not h.mkdir(remote):
+            raise ValueError(f"could not create {remote} on host '{h.key}'")
+    return remote
 
 
 def migrate_registry(*, apply: bool) -> dict:
@@ -322,16 +371,21 @@ def add_agent(
     account: str | None = None,
     harness: str | None = None,
     agent_id: str | None = None,
+    host: str | None = None,
+    create_dir: bool = False,
 ) -> dict:
-    """Append a new agent with a stable id and saved harness. Raises ValueError
-    if the name or id already exists, or the path doesn't exist. `account` is an
+    """Append a new agent with a stable id, saved harness, and host.
+
+    `host` is where the agent's folder and session live: "local", or a key
+    from the [hosts] table in agents.toml.
+    For a remote host the folder is validated (and with create_dir=True, created)
+    ON THAT MACHINE over SSH, never against this filesystem. `account` is an
     explicit override; leave None to let the category rule decide the Claude
     account. `harness` defaults to Claude Code."""
     if find_agent(name):
         raise ValueError(f"agent '{name}' already exists")
-    resolved = Path(path).expanduser().resolve()
-    if not resolved.is_dir():
-        raise ValueError(f"path is not a directory: {path}")
+    host_key = _hosts.normalize_key(host)
+    stored_path = prepare_path(path, host_key, create=create_dir)
 
     existing = {a["id"] for a in load_agents_normalized()}
     new_id = _new_id(name, existing, agent_id)
@@ -341,9 +395,10 @@ def add_agent(
     agent: dict = {
         "id": new_id,
         "name": name,
-        "path": str(resolved),
+        "path": stored_path,
         "kind": kind,
         "harness": harness_key,
+        "host": host_key,
     }
     if category:
         agent["category"] = category
