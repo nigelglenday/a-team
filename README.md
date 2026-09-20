@@ -1,6 +1,6 @@
 # a-team
 
-![Version](https://img.shields.io/badge/version-0.3.0-orange) ![License](https://img.shields.io/badge/license-MIT-yellow) ![Python](https://img.shields.io/badge/python-3.11%2B-blue) ![Platform](https://img.shields.io/badge/platform-macOS-black) ![Ghostty](https://img.shields.io/badge/terminal-Ghostty-orange) ![Termpaper](https://img.shields.io/badge/set-termpaper-cyan)
+![Version](https://img.shields.io/badge/version-0.5.0-orange) ![License](https://img.shields.io/badge/license-MIT-yellow) ![Python](https://img.shields.io/badge/python-3.11%2B-blue) ![Platform](https://img.shields.io/badge/platform-macOS-black) ![Ghostty](https://img.shields.io/badge/terminal-Ghostty-orange) ![Termpaper](https://img.shields.io/badge/set-termpaper-cyan)
 
 > *I love it when a plan comes together.*
 
@@ -88,6 +88,43 @@ kind = "ephemeral"
 `kind = "persistent"` agents are restored by `a-team all`. `kind = "ephemeral"` are not.
 
 `category` groups agents in the picker. Order in the file = order in the picker.
+
+### Remote hosts
+
+An agent's folder and session can live on **another machine**, reached over SSH:
+an always-on Mac as the server, your laptop as the cockpit. Hosts are configured,
+never hardcoded:
+
+```toml
+[hosts]
+server = "myserver"        # key -> ssh target (a ~/.ssh/config alias
+build  = "user@10.0.0.5"   #        or user@host)
+
+[[agent]]
+name = "Build Agent"
+path = "~/agents/build"    # path on THAT machine; ~ expands there
+host = "server"
+```
+
+```bash
+a-team new "Build Agent" --host server    # creates the folder on that machine
+a-team config default-host server         # new agents default there
+```
+
+With a default host set, `a-team new "Build Agent"` needs no flags at all.
+
+Remote agents run inside `tmux new-session -A` on their host, so they survive the
+window closing, and attach over `mosh` (falling back to `ssh -t`). They also start
+with Claude Code's Remote Control on, named after the agent, which makes them
+reachable from the phone app and addressable by other sessions.
+
+`examples/atx` is a cold-start helper that skips the picker entirely:
+`atx build-agent` resolves the agent and opens it on whichever host it belongs to.
+
+**Read [docs/remote-agents.md](docs/remote-agents.md) before setting this up.** It
+covers the failure modes, chiefly that SSH logins on macOS cannot read the keychain,
+which makes Claude Code fall back to API-key mode and silently disables Remote
+Control until you start the tmux server from a GUI session.
 
 ### Accounts
 
