@@ -30,6 +30,9 @@ import shlex
 import subprocess
 import time
 
+from . import harness as _harness
+from . import hosts as _hosts
+
 
 _APPLESCRIPT = r'''
 tell application "Ghostty" to activate
@@ -69,22 +72,40 @@ def _validate(name: str, path: str) -> None:
 
 
 def _build_command(
-    display_name: str, path: str, claude_cmd: str, config_dir: str | None = None
+    display_name: str,
+    path: str,
+    harness: _harness.Harness,
+    session_mode: str,
+    config_dir: str | None = None,
+    host: "_hosts.Host | None" = None,
+    session: str | None = None,
 ) -> str:
     r"""The plain bash command pasted into the new window. Single backslashes
     (``\\e``, ``\\a`` in source -> literal ``\e``, ``\a``) so printf emits real escapes.
 
-    If `config_dir` is given, export CLAUDE_CONFIG_DIR first so the session (and
-    the claude it launches) runs under that account's login."""
+    The harness supplies both the launch verb (new/continue/resume) and the
+    per-account config export — and it exports only its OWN config variable, so
+    a Claude config dir can never leak into Codex."""
     seq = f"\\e]0;{display_name}\\a\\e]1;{display_name}\\a\\e]2;{display_name}\\a"
-    env = f"export CLAUDE_CONFIG_DIR={shlex.quote(config_dir)}; " if config_dir else ""
+    h = host if host is not None else _hosts.LOCAL
+    # Remote agents start with Remote Control on, named after the agent. Two
+    # reasons: the session is then reachable from the phone and by SendMessage
+    # from other sessions, and it carries a real name instead of the
+    # auto-generated `hostname-ancient-wirth` the runtime would pick. Local
+    # agents are left alone: you are already sitting at that machine.
+    rc_args = harness.remote_control_args(display_name) if h.is_remote else ""
+    engine_cmd = harness.launch_command(session_mode, rc_args)
+    # Account config is a local-machine concept (CLAUDE_CONFIG_DIR). A remote
+    # host runs under its OWN login, so we never export it across the SSH hop.
+    env = harness.env_prefix(config_dir) if not h.is_remote else ""
+    body = h.launch_command(path, engine_cmd, session or "agent")
     return (
         "{ "
         f"{env}"
         f"( while :; do printf '{seq}'; sleep 1; done ) & "
         "TPID=$!; "
         'trap "kill $TPID 2>/dev/null" EXIT INT TERM HUP; '
-        f"cd {shlex.quote(path)} && {claude_cmd}; "
+        f"{body}; "
         "}"
     )
 
@@ -96,30 +117,49 @@ def open_agent(
     session_mode: str = "continue",
     topic: str | None = None,
     config_dir: str | None = None,
+    harness: str = _harness.DEFAULT_HARNESS,
+    host: str = _hosts.DEFAULT_HOST,
+    session: str | None = None,
 ) -> None:
-    """Open a new Ghostty window for the agent.
+    """Open a new Ghostty window for the agent under the chosen harness.
 
     Opens a window in the running Ghostty instance, sets the title to
-    `name` (kept set via a re-emit loop), cd's into `path`, and runs
-    Claude Code. `session_mode` selects how claude starts:
-      - "continue": resume the most-recent session (`claude --continue`, fresh fallback)
-      - "new":      a fresh session (`claude`)
-      - "resume":   Claude's own past-session picker (`claude --resume`, fresh fallback)
+    `name` (kept set via a re-emit loop), cd's into `path`, and runs the
+    harness. `session_mode` selects how it starts:
+      - "continue": resume the most-recent session in this dir (fresh fallback)
+      - "new":      a fresh session
+      - "resume":   the harness's own past-session picker (fresh fallback)
     `topic` is an optional label appended to the window title. `config_dir`
-    selects the Claude account (CLAUDE_CONFIG_DIR); None = personal.
+    selects the account config home for harnesses that support it (Claude:
+    CLAUDE_CONFIG_DIR); None = default/personal. `harness` is "claude" | "codex".
+
+    Raises RuntimeError with an actionable message if the harness executable is
+    not on PATH, so a missing `codex` reports setup instead of a mangled window.
     """
+    h = _harness.get(harness)
+    target = _hosts.get(host)
+    if target.is_remote:
+        # The harness runs on the REMOTE box, so a local `which` proves nothing.
+        # What matters here is that we can reach the host at all.
+        if not target.reachable():
+            raise RuntimeError(
+                f"{target.label} is not reachable (check `ssh {target.ssh_alias}` "
+                f"and that Tailscale is up)."
+            )
+    elif not h.is_available():
+        raise RuntimeError(
+            f"{h.label} is not installed or not on PATH (need `{h.executable}`). "
+            f"Install it or choose a different harness."
+        )
     _validate(name, path)
     if topic:
         _validate(topic, path)
         display_name = f"{name}: {topic}"
     else:
         display_name = name
-    claude_cmd = {
-        "new": "claude",
-        "continue": "{ claude --continue || claude; }",
-        "resume": "{ claude --resume || claude; }",
-    }.get(session_mode, "{ claude --continue || claude; }")
-    command = _build_command(display_name, path, claude_cmd, config_dir)
+    command = _build_command(
+        display_name, path, h, session_mode, config_dir, host=target, session=session
+    )
 
     # Save the clipboard, set our command, paste it, restore. pbcopy via stdin
     # means the command never hits AppleScript escaping.
@@ -140,8 +180,19 @@ def open_agent(
 
 
 def open_all(agents: list[dict], delay_between: float = 1.0) -> None:
-    """Open Ghostty windows for every agent, with a small delay between
-    spawns so Ghostty has time to settle between menu clicks."""
-    for agent in agents:
-        open_agent(agent["name"], agent["path"])
+    """Open Ghostty windows for every agent, respecting each agent's saved
+    harness AND resolved account config (both previously dropped here), with a
+    small delay so Ghostty settles between menu clicks."""
+    from . import config  # local import avoids a module-load cycle
+
+    for agent in config._normalized(agents):
+        harness_key = agent.get("harness", _harness.DEFAULT_HARNESS)
+        open_agent(
+            agent["name"],
+            agent["path"],
+            harness=harness_key,
+            host=agent.get("host", _hosts.DEFAULT_HOST),
+            session=agent.get("id"),
+            config_dir=config.resolve_config_dir(agent, harness=harness_key),
+        )
         time.sleep(delay_between)

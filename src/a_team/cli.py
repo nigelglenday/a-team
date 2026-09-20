@@ -11,6 +11,7 @@ Subcommand layout:
     a-team ls
 """
 
+import json
 import os
 import re
 import subprocess
@@ -45,6 +46,36 @@ def _clipboard_path() -> str | None:
     return None
 
 
+def _open(
+    agent: dict,
+    *,
+    session_mode: str = "continue",
+    topic: str | None = None,
+    override_harness: str | None = None,
+) -> bool:
+    """Launch an agent under its saved harness (or a one-time override),
+    resolving the harness-appropriate account config. One place so every launch
+    path stays consistent. Returns False (after printing an actionable error) if
+    the chosen harness isn't installed."""
+    hk = config.resolve_harness(agent, override=override_harness).key
+    host = config.resolve_host(agent)
+    try:
+        spawn.open_agent(
+            agent["name"],
+            agent["path"],
+            session_mode=session_mode,
+            topic=topic,
+            harness=hk,
+            host=host.key,
+            session=agent.get("id"),
+            config_dir=config.resolve_config_dir(agent, harness=hk),
+        )
+        return True
+    except RuntimeError as e:
+        ui.error(str(e))
+        return False
+
+
 class AteamGroup(click.Group):
     """Click Group that routes unknown command names to the direct-open
     shortcut handler. Lets `a-team EA` work without colliding with the
@@ -57,7 +88,15 @@ class AteamGroup(click.Group):
 
         # Unknown name — treat as direct-open shortcut.
         @click.command(name=cmd_name, help=f"Open agent '{cmd_name}'.")
-        def shortcut():
+        @click.option(
+            "--harness",
+            "harness",
+            type=click.Choice(["claude", "codex"]),
+            default=None,
+            help="Open under this harness once (default: the agent's saved harness). "
+            "Does not change the saved default.",
+        )
+        def shortcut(harness: str | None):
             agent = config.find_agent(cmd_name)
             if not agent:
                 ui.error(f"agent not found: {cmd_name}")
@@ -65,7 +104,8 @@ class AteamGroup(click.Group):
                     "[soft]Run `a-team ls` to see registered agents.[/soft]"
                 )
                 sys.exit(1)
-            spawn.open_agent(agent["name"], agent["path"], config_dir=config.resolve_config_dir(agent))
+            if not _open(agent, override_harness=harness):
+                sys.exit(1)
 
         return shortcut
 
@@ -106,12 +146,75 @@ def all_cmd(ctx: click.Context) -> None:
     ui.info("Done.")
 
 
+@cli.command("resolve")
+@click.argument("identifier")
+@click.option("--json", "as_json", is_flag=True, help="Emit the full record as JSON.")
+@click.option("--field", type=click.Choice(["id", "name", "path", "harness", "host"]), default=None,
+              help="Print just one field (for shell scripts).")
+def resolve_cmd(identifier: str, as_json: bool, field: str | None) -> None:
+    """Resolve an agent identifier (id, exact name, or alias) to its record.
+
+    The single canonical resolver for shell helpers: instead of each script
+    re-parsing agents.toml, they call this. Resolves by stable id → exact name →
+    alias, refuses ambiguous matches (exit 2), and exits 1 if not found. Default
+    output is the stable id; --field or --json for more.
+    """
+    try:
+        agent = config.resolve_agent(identifier)
+    except ValueError as e:  # ambiguous identifier
+        ui.error(str(e))
+        sys.exit(2)
+    if not agent:
+        ui.error(f"no agent matches {identifier!r}")
+        sys.exit(1)
+    if as_json:
+        click.echo(json.dumps({
+            "id": agent["id"],
+            "name": agent["name"],
+            "path": agent["path"],
+            "harness": agent["harness"],
+            "host": agent["host"],
+            "ssh": config.resolve_host(agent).ssh_alias,
+        }))
+    elif field:
+        click.echo(agent[field])
+    else:
+        click.echo(agent["id"])
+
+
+@cli.command("migrate")
+@click.option("--apply", "do_apply", is_flag=True, help="Write the changes (default is a dry run).")
+def migrate_cmd(do_apply: bool) -> None:
+    """Backfill stable ids + harness into agents.toml (rename-safe identity).
+
+    Dry run by default: shows exactly what would change and writes nothing.
+    Pass --apply to write; the current registry is backed up to
+    <name>.bak-<timestamp> first, and all other fields/tables are preserved.
+    """
+    report = config.migrate_registry(apply=do_apply)
+    changes = report["changes"]
+    if not changes:
+        ui.info(f"Registry already migrated ({report['total']} agents). Nothing to do.")
+        return
+    verb = "Migrated" if do_apply else "Would migrate"
+    ui.info(f"{verb} {len(changes)} of {report['total']} agents in {report['path']}:")
+    for name, agent_id, harness in changes:
+        ui.console.print(f"  [soft]{name}[/soft] → id=[bold]{agent_id}[/bold], harness={harness}")
+    if do_apply:
+        ui.info(f"Backup written to {report['backup']}")
+        ui.info("Done. Rollback: restore the .bak file over agents.toml.")
+    else:
+        ui.warn("Dry run — nothing written. Re-run with --apply to write.")
+
+
 @cli.command("here")
 @click.argument("name", required=False, default=None)
 @click.option("--ephemeral", is_flag=True, help="Mark as ephemeral (excluded from `a-team all`).")
 @click.option("--category", "-c", default=None, help="Category for grouping in the picker.")
 @click.option("--account", default=None, help="Claude account override (e.g. 'work'). Omit to use the category's default.")
-def here_cmd(name: str | None, ephemeral: bool, category: str | None, account: str | None) -> None:
+@click.option("--harness", type=click.Choice(["claude", "codex"]), default=None, help="Harness to run this agent under (default: claude).")
+@click.option("--host", default=None, help="Where the agent lives: 'local' or a host from the [hosts] table (default: local).")
+def here_cmd(name: str | None, ephemeral: bool, category: str | None, account: str | None, harness: str | None, host: str | None) -> None:
     """Register the current working directory as an agent.
 
     Name defaults to the directory's basename if omitted. Useful for adding
@@ -131,12 +234,12 @@ def here_cmd(name: str | None, ephemeral: bool, category: str | None, account: s
         name = Path(cwd).name
     kind = "ephemeral" if ephemeral else "persistent"
     try:
-        agent = config.add_agent(name, cwd, kind=kind, category=category, account=account)
+        agent = config.add_agent(name, cwd, kind=kind, category=category, account=account, harness=harness, host=host)
     except ValueError as e:
         ui.error(str(e))
         sys.exit(1)
     cat_suffix = f", {agent['category']}" if agent.get("category") else ""
-    ui.info(f"Added agent '{agent['name']}' ({agent['kind']}{cat_suffix}) → {agent['path']}")
+    ui.info(f"Added agent '{agent['name']}' ({agent['kind']}, {agent['harness']}, host={agent['host']}{cat_suffix}) → {agent['path']}")
 
 
 def _slugify(label: str) -> str:
@@ -199,7 +302,7 @@ def scratch_cmd(label: str | None) -> None:
     if agent is None:
         sys.exit(1)
     ui.info(f"Created scratch '{agent['name']}' → {agent['path']}")
-    spawn.open_agent(agent["name"], agent["path"], config_dir=config.resolve_config_dir(agent))
+    _open(agent)
 
 
 @cli.command("new")
@@ -208,7 +311,9 @@ def scratch_cmd(label: str | None) -> None:
 @click.option("--ephemeral", is_flag=True, help="Mark as ephemeral (excluded from `a-team all`).")
 @click.option("--category", "-c", default=None, help="Category for grouping in the picker.")
 @click.option("--account", default=None, help="Claude account override (e.g. 'work'). Omit to use the category's default.")
-def new_cmd(name: str, path: str | None, ephemeral: bool, category: str | None, account: str | None) -> None:
+@click.option("--harness", type=click.Choice(["claude", "codex"]), default=None, help="Harness to run this agent under (default: claude).")
+@click.option("--host", default=None, help="Where the agent lives: 'local' or a host from the [hosts] table. The folder is created on that machine.")
+def new_cmd(name: str, path: str | None, ephemeral: bool, category: str | None, account: str | None, harness: str | None, host: str | None) -> None:
     """Register a new agent.
 
     PATH lookup order if omitted:
@@ -216,18 +321,28 @@ def new_cmd(name: str, path: str | None, ephemeral: bool, category: str | None, 
       2. Scaffold <default_parent>/<name>/ if `default_parent` is set
          (see `a-team config default-parent <path>`)
     """
-    resolved = _resolve_new_path(name, path)
-    if resolved is None:
-        sys.exit(1)
+    from . import hosts as _hosts
+
+    # No --host given? Use the configured default (a-team config default-host).
+    host_key = _hosts.normalize_key(host if host is not None else config.get_default_host())
+    if host_key == _hosts.DEFAULT_HOST:
+        resolved = _resolve_new_path(name, path)
+        if resolved is None:
+            sys.exit(1)
+    else:
+        # Remote host: do NOT resolve or scaffold against this filesystem.
+        # Pass the raw path through; `~` is expanded on the REMOTE machine.
+        # With no path given, mirror the local convention: ~/agents/<slug>.
+        resolved = path or f"~/agents/{config.slugify(name)}"
 
     kind = "ephemeral" if ephemeral else "persistent"
     try:
-        agent = config.add_agent(name, resolved, kind=kind, category=category, account=account)
+        agent = config.add_agent(name, resolved, kind=kind, category=category, account=account, harness=harness, host=host_key, create_dir=True)
     except ValueError as e:
         ui.error(str(e))
         sys.exit(1)
     cat_suffix = f", {agent['category']}" if agent.get("category") else ""
-    ui.info(f"Added agent '{agent['name']}' ({agent['kind']}{cat_suffix}) → {agent['path']}")
+    ui.info(f"Added agent '{agent['name']}' ({agent['kind']}, {agent['harness']}, host={agent['host']}{cat_suffix}) → {agent['path']}")
 
 
 def _resolve_new_path(name: str, path: str | None) -> str | None:
@@ -282,6 +397,17 @@ def _resolve_new_path(name: str, path: str | None) -> str | None:
     return None
 
 
+@cli.command("tui")
+def tui_cmd() -> None:
+    """Open the live dashboard (requires the 'tui' extra)."""
+    try:
+        from . import tui
+    except ImportError:
+        ui.error("the dashboard needs textual: pip install 'a-team[tui]'")
+        raise SystemExit(1)
+    tui.run()
+
+
 @cli.group("config")
 def config_cmd() -> None:
     """Show or set a-team settings (stored in agents.toml)."""
@@ -325,6 +451,32 @@ def config_default_parent(path: str | None, unset: bool) -> None:
         sys.exit(1)
     config.set_setting("default_parent", str(expanded))
     ui.info(f"Set default_parent → {expanded}")
+
+
+@config_cmd.command("default-host")
+@click.argument("host_key", required=False, default=None)
+@click.option("--unset", is_flag=True, help="Clear the default_host setting (back to local).")
+def config_default_host(host_key: str | None, unset: bool) -> None:
+    """Set where `a-team new` puts agents when --host isn't given.
+
+    Use a key from the [hosts] table, or 'local' for this machine.
+    """
+    from . import hosts as _hosts
+
+    if unset:
+        config.set_setting("default_host", None)
+        ui.info("Cleared default_host (new agents default to local).")
+        return
+    if not host_key:
+        print(config.get_default_host())
+        return
+    try:
+        key = _hosts.normalize_key(host_key)
+    except ValueError as e:
+        ui.error(str(e))
+        sys.exit(1)
+    config.set_setting("default_host", key)
+    ui.info(f"Set default_host → {key}")
 
 
 @cli.command("rm")
@@ -455,8 +607,22 @@ def run_picker(no_splash: bool = False) -> None:
             splash_shown = False  # screen was cleared; re-show splash
             continue
 
-        # User picked an actual agent — ask resume vs fresh chat, then open.
-        mode = ui.prompt_chat_mode(selection["name"])
+        # User picked an actual agent — ask resume vs fresh chat (with the
+        # harness shown), then open. Chosen harness starts at the saved default;
+        # "Switch harness…" re-asks under the other one for this open only and
+        # never changes the saved default.
+        chosen_harness = config.resolve_harness(selection).key
+        mode = ui.prompt_chat_mode(
+            selection["name"], harness_label=config.resolve_harness(selection, override=chosen_harness).label
+        )
+        while mode == ui.CHAT_MODE_SWITCH_HARNESS:
+            picked = ui.prompt_harness(selection["name"], chosen_harness)
+            if picked:
+                chosen_harness = picked
+            mode = ui.prompt_chat_mode(
+                selection["name"],
+                harness_label=config.resolve_harness(selection, override=chosen_harness).label,
+            )
         if mode is None or mode == ui.CHAT_MODE_CANCEL:
             # Cancelled the sub-prompt; loop back to the picker without opening.
             continue
@@ -471,13 +637,7 @@ def run_picker(no_splash: bool = False) -> None:
             ui.CHAT_MODE_CONTINUE: "continue",
             ui.CHAT_MODE_RESUME: "resume",
         }.get(mode, "continue")
-        spawn.open_agent(
-            selection["name"],
-            selection["path"],
-            session_mode=session_mode,
-            topic=topic,
-            config_dir=config.resolve_config_dir(selection),
-        )
+        _open(selection, session_mode=session_mode, topic=topic, override_harness=chosen_harness)
         label = f"{selection['name']}: {topic}" if topic else selection["name"]
         suffix = {"new": " (new chat)", "resume": " (resume)"}.get(session_mode, "")
         last_action = f"Opened {label}{suffix}"
@@ -493,7 +653,7 @@ def _scratch_via_picker() -> str | None:
     agent = _create_scratch(label or None)
     if agent is None:
         return None
-    spawn.open_agent(agent["name"], agent["path"], config_dir=config.resolve_config_dir(agent))
+    _open(agent)
     return f"Opened scratch '{agent['name']}'"
 
 
@@ -534,6 +694,9 @@ def _create_agent_flow(default_path: str | None = None) -> str | None:
             kind=new["kind"],
             category=new.get("category"),
             account=new.get("account"),
+            harness=new.get("harness"),
+            host=new.get("host"),
+            create_dir=True,
         )
     except ValueError as e:
         ui.error(str(e))
@@ -549,7 +712,7 @@ def _create_agent_flow(default_path: str | None = None) -> str | None:
         style=questionary.Style([("question", "bold"), ("pointer", "fg:#ff8800")]),
     ).ask()
     if open_now:
-        spawn.open_agent(agent["name"], agent["path"], config_dir=config.resolve_config_dir(agent))
+        _open(agent)
 
 
 def _manage_flow(agents: list[dict]) -> str | None:
