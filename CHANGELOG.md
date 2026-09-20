@@ -4,7 +4,11 @@ All notable changes to `a-team` are documented here.
 
 This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.3] - 2026-09-20
+## [0.5.4] - 2026-09-20
+
+- **Fix: `atx` reported a reachable host as unreachable once an agent had no sessions.** The session lookup piped `ssh` into `grep`, and under `set -o pipefail` a grep that matches nothing makes the whole pipeline non-zero, which the error handler read as an SSH failure. So stopping an agent's last session made the next `atx <agent>` claim "could not reach <host>" instead of starting it. The ssh call and the filtering are now separate steps.
+
+
 
 - **[docs/faq.md](docs/faq.md).** Task-shaped answers to the questions people actually ask: opening a second session on the same project, seeing what is running, whether closing the window kills an agent, reaching one from a phone, and what `?` means in the dashboard. The existing docs were organised by concept and failure mode, which is the wrong shape for "how do I".
 - **README overhaul.** It still described a Ghostty session picker. It now leads with what the tool grew into: parallel sessions, agents on a second machine, phone access, and a choice of harness. The command list had drifted badly — `tui`, `resolve`, `config` and `migrate` were missing entirely, and `atx` appeared without any of its flags, so the parallel-session support shipped in 0.5.2 was undiscoverable outside the script's own header. Adds a docs index.
