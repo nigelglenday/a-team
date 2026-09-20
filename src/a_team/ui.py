@@ -237,29 +237,52 @@ def prompt_scratch_label() -> Optional[str]:
     ).ask()
 
 
-CHAT_MODE_CONTINUE = "continue"  # claude --continue (most recent)
-CHAT_MODE_RESUME = "resume"      # claude --resume (pick from past sessions)
-CHAT_MODE_NEW = "new"            # claude (fresh)
+CHAT_MODE_CONTINUE = "continue"  # continue the most recent session
+CHAT_MODE_RESUME = "resume"      # pick from past sessions (harness's own picker)
+CHAT_MODE_NEW = "new"            # fresh session
 CHAT_MODE_CANCEL = "cancel"
+CHAT_MODE_SWITCH_HARNESS = "switch_harness"  # re-ask under a different harness
 
 
-def prompt_chat_mode(agent_name: str) -> Optional[str]:
+def prompt_chat_mode(agent_name: str, harness_label: Optional[str] = None) -> Optional[str]:
     """Ask how to start the agent: continue the most recent session, start a new
-    one, or pick from past sessions (Claude's own `--resume` picker).
+    one, or pick from past sessions (the harness's own `--resume`/`resume` picker).
 
-    Returns one of CHAT_MODE_CONTINUE / CHAT_MODE_NEW / CHAT_MODE_RESUME /
-    CHAT_MODE_CANCEL, or None on Esc / Ctrl-C. Continue is the default — enter on
-    the highlighted row keeps the prior behavior.
+    When `harness_label` is given, the title shows which harness will run and a
+    "Switch harness…" row lets the caller re-ask under the other one. Returns one
+    of the CHAT_MODE_* values, or None on Esc / Ctrl-C. Continue is the default —
+    enter on the highlighted row keeps the prior (fast-path) behavior.
     """
+    title = f"How should we start {agent_name}?"
+    choices = [
+        questionary.Choice(title="Continue last session", value=CHAT_MODE_CONTINUE),
+        questionary.Choice(title="New session", value=CHAT_MODE_NEW),
+        questionary.Choice(title="Resume a past session…", value=CHAT_MODE_RESUME),
+    ]
+    if harness_label is not None:
+        title = f"How should we start {agent_name}? [{harness_label}]"
+        choices.append(
+            questionary.Choice(title="Switch harness…", value=CHAT_MODE_SWITCH_HARNESS)
+        )
+    choices.append(questionary.Choice(title="Cancel", value=CHAT_MODE_CANCEL))
     return questionary.select(
-        f"How should we start {agent_name}?",
-        choices=[
-            questionary.Choice(title="Continue last session", value=CHAT_MODE_CONTINUE),
-            questionary.Choice(title="New session", value=CHAT_MODE_NEW),
-            questionary.Choice(title="Resume a past session…", value=CHAT_MODE_RESUME),
-            questionary.Choice(title="Cancel", value=CHAT_MODE_CANCEL),
-        ],
+        title,
+        choices=choices,
         default=CHAT_MODE_CONTINUE,
+        style=_picker_style,
+        use_jk_keys=False,
+    ).ask()
+
+
+def prompt_harness(agent_name: str, default_key: str) -> Optional[str]:
+    """Pick the harness to open an agent under (one-time), defaulting to the
+    saved choice. Returns a harness key ('claude' | 'codex') or None on cancel."""
+    from .harness import HARNESSES
+
+    return questionary.select(
+        f"Which harness for {agent_name}?",
+        choices=[questionary.Choice(title=h.label, value=h.key) for h in HARNESSES.values()],
+        default=default_key,
         style=_picker_style,
         use_jk_keys=False,
     ).ask()
@@ -306,19 +329,38 @@ def prompt_new_agent(
     # back to a clipboard directory (Finder: Copy as Pathname) when there's no
     # default_parent — otherwise a stale clipboard silently picks the folder.
     from .config import slugify
+    from .hosts import DEFAULT_HOST, all_hosts
 
-    if not default_path and default_parent:
-        default_path = str(Path(default_parent).expanduser() / slugify(name))
-
-    if not default_path:
-        default_path = _clipboard_path_or_empty()
-
-    path = questionary.path(
-        "Folder:",
-        default=default_path or "",
-        only_directories=True,
+    # Where the agent lives. Asked before the folder, because a remote host
+    # means the folder is a path on THAT machine, not this one.
+    host = questionary.select(
+        "Host:",
+        choices=[questionary.Choice(title=h.label, value=h.key) for h in all_hosts().values()],
+        default=DEFAULT_HOST,
         style=_picker_style,
     ).ask()
+    if host is None:
+        return None
+
+    if host == DEFAULT_HOST:
+        if not default_path and default_parent:
+            default_path = str(Path(default_parent).expanduser() / slugify(name))
+        if not default_path:
+            default_path = _clipboard_path_or_empty()
+        path = questionary.path(
+            "Folder:",
+            default=default_path or "",
+            only_directories=True,
+            style=_picker_style,
+        ).ask()
+    else:
+        # Remote: a local directory browser would be meaningless here, so take
+        # plain text and let the folder be created on that machine.
+        path = questionary.text(
+            f"Folder on {all_hosts()[host].label} (created if missing):",
+            default=f"~/agents/{slugify(name)}",
+            style=_picker_style,
+        ).ask()
     if not path:
         return None
 
@@ -335,6 +377,17 @@ def prompt_new_agent(
         style=_picker_style,
     ).ask()
     if not kind:
+        return None
+
+    from .harness import HARNESSES, DEFAULT_HARNESS
+
+    harness = questionary.select(
+        "Harness:",
+        choices=[questionary.Choice(title=h.label, value=h.key) for h in HARNESSES.values()],
+        default=DEFAULT_HARNESS,
+        style=_picker_style,
+    ).ask()
+    if harness is None:
         return None
 
     category_choices: list = []
@@ -389,6 +442,8 @@ def prompt_new_agent(
         "path": path,
         "kind": kind,
         "category": category,
+        "harness": harness,
+        "host": host,
     }
     if account != category_default:
         result["account"] = account  # explicit override
