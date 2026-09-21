@@ -1,6 +1,6 @@
 # a-team
 
-![Version](https://img.shields.io/badge/version-0.5.5-orange) ![License](https://img.shields.io/badge/license-MIT-yellow) ![Python](https://img.shields.io/badge/python-3.11%2B-blue) ![Platform](https://img.shields.io/badge/platform-macOS-black) ![Ghostty](https://img.shields.io/badge/terminal-Ghostty-orange) ![Termpaper](https://img.shields.io/badge/set-termpaper-cyan)
+![Version](https://img.shields.io/badge/version-0.5.6-orange) ![License](https://img.shields.io/badge/license-MIT-yellow) ![Python](https://img.shields.io/badge/python-3.11%2B-blue) ![Platform](https://img.shields.io/badge/platform-macOS-black) ![Ghostty](https://img.shields.io/badge/terminal-Ghostty-orange) ![Termpaper](https://img.shields.io/badge/set-termpaper-cyan)
 
 > *I love it when a plan comes together.*
 
@@ -80,6 +80,7 @@ atx <agent> --label Acme        a session named for a client or topic ("Name: Ac
 atx <agent> -L                  list that agent's running sessions
 atx <agent> -s 3                attach to parallel session 3
 atx <agent> -d                  start detached, do not attach
+atx <agent> -w                  open it in its own window
 atx -l <agent>                  show where it lives, start nothing
 ```
 

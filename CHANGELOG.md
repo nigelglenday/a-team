@@ -4,6 +4,11 @@ All notable changes to `a-team` are documented here.
 
 This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.6] - 2026-09-20
+
+- **`atx <agent> -w` opens the session in its own window.** Without it, `atx` takes over the terminal you ran it from, and opening several client sessions side by side meant driving a-team's `spawn.open_agent` by hand. It reuses that same code rather than reimplementing it: a window in the RUNNING Ghostty instance over AppleScript, since `open -na Ghostty --args -e` starts a second instance and fragments the windows, and the tmux session name is passed so `new-session -A` attaches to what is running instead of creating a duplicate.
+- Falls back to attaching in the current terminal, with a reason, when a-team's source is not where it expects.
+
 ## [0.5.5] - 2026-09-20
 
 - **`atx <agent> --label <name>`: named parallel sessions.** Numbered sessions ("Agent 2", "Agent 3") stop being useful once several are open for different clients or topics; on a phone they are indistinguishable. A label gives the session its own tmux name (`<id>-<slug>`) and Remote Control title (`<Name>: <Label>`). Re-running the same label **attaches** to that session rather than creating another, so it doubles as the way back into a given piece of work.
