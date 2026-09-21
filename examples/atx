@@ -34,6 +34,7 @@ AT=$(command -v a-team) || { echo "a-team not found on PATH" >&2; exit 1; }
 usage() { sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; }
 
 DETACH=0
+WINDOW=0
 LOOKUP=0
 NEWSESS=0
 LISTSESS=0
@@ -43,6 +44,7 @@ AGENT=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -d|--detach) DETACH=1; shift ;;
+    -w|--window) WINDOW=1; shift ;;
     -l|--where)  LOOKUP=1; shift ;;
     -n|--new)    NEWSESS=1; shift ;;
     --label)     LABEL="$2"; NEWSESS=1; shift 2 ;;
@@ -181,6 +183,31 @@ if [ "$DETACH" -eq 1 ]; then
   echo "  the Claude phone app  ->  Code > Session list > \"$RC_NAME\""
   echo "  this terminal         ->  atx $AGENT${PICK:+ -s $PICK}"
   exit 0
+fi
+
+# A window of its own, rather than taking over this terminal. a-team already
+# knows how to do this: it opens a window in the RUNNING Ghostty instance over
+# AppleScript, because `open -na Ghostty --args -e` starts a SECOND instance and
+# fragments your windows. Passing the tmux session name makes its
+# `tmux new-session -A` attach to what is already running rather than duplicate it.
+if [ "$WINDOW" -eq 1 ]; then
+  ATEAM_PY=$(head -1 "$(command -v a-team 2>/dev/null)" 2>/dev/null | sed 's|^#!||')
+  ATEAM_SRC="${ATEAM_SRC:-$HOME/code/a-team/src}"
+  if [ ! -x "$ATEAM_PY" ] || [ ! -d "$ATEAM_SRC" ]; then
+    echo "  -w needs a-team installed and its source at $ATEAM_SRC" >&2
+    echo "  attaching here instead" >&2
+  else
+    PYTHONPATH="$ATEAM_SRC" "$ATEAM_PY" - "$RC_NAME" "$PATH_" "$HOST" "$SESS" <<'PYEOF'
+import sys
+from a_team import spawn
+name, path, host, session = sys.argv[1:5]
+spawn.open_agent(name, path, host=host, session=session, session_mode="continue")
+print(f"  opened a window: {name}")
+PYEOF
+    echo "  empty window? run it again: the command is delivered by clipboard"
+    echo "  paste and occasionally misses the window opening."
+    exit 0
+  fi
 fi
 
 # Attach. mosh survives flaky wifi and roaming; ssh is the fallback.
