@@ -13,6 +13,7 @@
 #   atx <agent>         attach to that agent's session, starting it if needed
 #   atx <agent> -n      start an ADDITIONAL parallel session in the same folder
 #   atx <agent> -n --label Acme
+#   atx <agent> --label Acme --only-mcp ~/.config/advisor-mcp/acme.json
 #
 # A label is the session's ADDRESS. "<Agent>: <Label>" is what the phone app
 # shows and what another session passes to SendMessage. Give every parallel
@@ -49,6 +50,12 @@ LOOKUP=0
 NEWSESS=0
 LISTSESS=0
 LABEL=""
+# Need-to-know: launch seeing ONLY the MCP servers in this file, ignoring every
+# user-scope server. Several sessions can share a working directory and still
+# hold different credentials, which per-folder .mcp.json cannot do. Verified on
+# Claude Code 2.1.267: with --strict-mcp-config a session sees exactly what the
+# file names and none of the 19 user-scope servers.
+ONLY_MCP=""
 PICK=""
 AGENT=""
 while [ $# -gt 0 ]; do
@@ -58,6 +65,7 @@ while [ $# -gt 0 ]; do
     -l|--where)  LOOKUP=1; shift ;;
     -n|--new)    NEWSESS=1; shift ;;
     --label)     LABEL="$2"; NEWSESS=1; shift 2 ;;
+    --only-mcp)  ONLY_MCP="$2"; shift 2 ;;
     -L|--list)   LISTSESS=1; shift ;;
     -s|--session) PICK="$2"; shift 2 ;;
     -h|--help)   usage; exit 0 ;;
@@ -176,7 +184,9 @@ fi
 
 RC=""
 [ "$HARNESS" = "claude" ] && RC="--remote-control $(printf '%q' "$RC_NAME")"
-REMOTE_CMD="cd $(printf '%q' "$PATH_") && $HARNESS $RC"
+STRICT=""
+[ -n "$ONLY_MCP" ] && STRICT=" --strict-mcp-config --mcp-config $(printf '%q' "$ONLY_MCP")"
+REMOTE_CMD="cd $(printf '%q' "$PATH_") && $HARNESS $RC$STRICT"
 
 if echo "$EXISTING" | grep -qx "$SESS"; then
   echo "attaching to $RC_NAME on $HOST ($SESS)"
