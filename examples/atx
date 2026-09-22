@@ -13,6 +13,16 @@
 #   atx <agent>         attach to that agent's session, starting it if needed
 #   atx <agent> -n      start an ADDITIONAL parallel session in the same folder
 #   atx <agent> -n --label Acme
+#
+# A label is the session's ADDRESS. "<Agent>: <Label>" is what the phone app
+# shows and what another session passes to SendMessage. Give every parallel
+# session a label that says what it is for, and never reuse a label for a
+# different piece of work: two live sessions with one name cannot be told apart
+# by a sender, which is then left guessing or using an opaque session id.
+# On a remote host a repeated label reattaches its own tmux session, so it
+# cannot duplicate. Locally each window is its own session, so a repeated label
+# there DOES create a second session with the same name. Nothing enforces this:
+# the session names live in the Claude account, not on this machine.
 #                       ... and name it after the customer/topic, so the phone app
 #                       shows "Name: Acme" instead of "Name 2"
 #   atx <agent> -s N    attach to parallel session N (1 = the first one)
