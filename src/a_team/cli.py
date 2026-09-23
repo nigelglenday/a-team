@@ -737,7 +737,7 @@ def grants_cmd(as_json: bool, fix: bool, check_files: bool) -> None:
     if bad:
         ui.warn(f"{len(bad)} agent(s) with an account are not fully fenced: "
                 + ", ".join(r["name"] for r in bad))
-        ui.warn("Run `a-team grants --fix`, then `associate-grants` on that host to generate the files.")
+        ui.warn("Run `a-team grants --fix`, then `agent-grants` on that host to generate the files.")
 
 
 EMPTY_MCP = '"mcpServers": {}'
@@ -764,7 +764,7 @@ def _check_grant_files(rows: list[dict]) -> None:
         # report it separately rather than as a pass.
         checks = []
         for i, path in enumerate(paths):
-            if "associate-mcp" in path:
+            if "grants/mcp" in path:
                 checks.append(
                     "[ -f {p} ] && {{ grep -q '{empty}' {p} "
                     "&& echo '{i}:empty' || echo '{i}:ok'; }}".format(
