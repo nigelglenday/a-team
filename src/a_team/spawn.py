@@ -63,6 +63,50 @@ end tell
 '''
 
 
+_APPLESCRIPT_TAB = r"""
+tell application "Ghostty" to activate
+tell application "System Events"
+    tell process "Ghostty"
+        -- A tab needs a window to live in. With none open, "New Tab" is either
+        -- disabled or makes a window anyway depending on version, so be explicit.
+        if (count of windows) is 0 then
+            click menu item "New Window" of menu "File" of menu bar 1
+            repeat 40 times
+                if (count of windows) > 0 then exit repeat
+                delay 0.1
+            end repeat
+        else
+            set t0 to 0
+            try
+                set t0 to count of (tabs of window 1)
+            end try
+            click menu item "New Tab" of menu "File" of menu bar 1
+            -- Wait for the tab to exist rather than guessing at a delay. Some
+            -- Ghostty builds do not expose `tabs` to System Events at all; fall
+            -- back to a bounded wait rather than failing the open.
+            repeat 40 times
+                try
+                    if (count of (tabs of window 1)) > t0 then exit repeat
+                on error
+                    delay 0.4
+                    exit repeat
+                end try
+                delay 0.1
+            end repeat
+        end if
+    end tell
+end tell
+delay 0.4
+tell application "System Events"
+    keystroke "u" using control down
+    delay 0.1
+    keystroke "v" using command down
+    delay 0.3
+    key code 36
+end tell
+"""
+
+
 def _validate(name: str, path: str) -> None:
     """Reject inputs that would break the launch command's quoting."""
     if any(ch in name for ch in ("'", "\n", "\r")):
@@ -209,7 +253,8 @@ def tmux_sessions(host: str = _hosts.DEFAULT_HOST) -> list[str] | None:
     return [line.strip() for line in r.stdout.splitlines() if line.strip()]
 
 
-def attach_window(session: str, host: str = _hosts.DEFAULT_HOST) -> None:
+def attach_window(session: str, host: str = _hosts.DEFAULT_HOST,
+                  tab: bool = False) -> None:
     """Open a Ghostty window attached to an existing session on `host`.
 
     Never `open -na Ghostty`: -n starts a separate copy of the application
@@ -219,6 +264,9 @@ def attach_window(session: str, host: str = _hosts.DEFAULT_HOST) -> None:
 
     MOSH_TITLE_NOPREFIX stops mosh prefixing every tab with "[mosh] ", which
     pushed the distinguishing part of the name off the end of the tab.
+
+    `tab` opens it as a tab in the frontmost window instead of its own window,
+    which is how a row of Associates is normally arranged.
     """
     target = _hosts.get(host)
     if target.is_remote:
@@ -235,7 +283,8 @@ def attach_window(session: str, host: str = _hosts.DEFAULT_HOST) -> None:
         prev = b""
     subprocess.run(["pbcopy"], input=command.encode(), check=True)
     try:
-        subprocess.run(["osascript", "-e", _APPLESCRIPT], check=True)
+        subprocess.run(["osascript", "-e",
+                        _APPLESCRIPT_TAB if tab else _APPLESCRIPT], check=True)
     finally:
         try:
             subprocess.run(["pbcopy"], input=prev, check=False)
