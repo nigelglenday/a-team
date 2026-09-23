@@ -263,7 +263,7 @@ def _normalized(agents: list[dict]) -> list[dict]:
         # default of True would have a reboot try to start all of them.
         b.setdefault("boot", False)
         b.setdefault("status", "active")
-        for optional in ("mcp", "settings", "account", "parent"):
+        for optional in ("mcp", "settings", "account", "parent", "group"):
             b.setdefault(optional, None)
         out.append(b)
     return out
@@ -536,6 +536,58 @@ def grant_paths(account: str | None) -> tuple[str | None, str | None]:
     if not account:
         return None, None
     return f"{GRANT_MCP_DIR}/{account}.json", f"{GRANT_SETTINGS_DIR}/{account}.json"
+
+
+# A group is a slash-separated PATH, so it nests: "deal", "deal/preload",
+# "backoffice/sidekick". Which node becomes its own window is a separate
+# decision from where an agent sits in the tree, because the tree is stable and
+# the window layout is not: sidekicks fan out into their own window without
+# anything being re-tagged. By default the top-level segment is the window;
+# `split_windows` promotes a deeper node.
+def split_windows() -> list[str]:
+    """Group paths that get a window of their own, most specific winning."""
+    raw = get_setting("split_windows") or ""
+    return [g.strip() for g in raw.split(",") if g.strip()]
+
+
+def window_for(group: str | None, splits: list[str] | None = None) -> str | None:
+    """The window a group path belongs to: the most specific declared split
+    that is the group or an ancestor of it, else its top-level segment."""
+    if not group:
+        return None
+    splits = split_windows() if splits is None else splits
+    best = None
+    for s in splits:
+        if group == s or group.startswith(s.rstrip("/") + "/"):
+            if best is None or len(s) > len(best):
+                best = s
+    return best or group.split("/")[0]
+
+
+def groups() -> dict[str, list[dict]]:
+    """Active agents bucketed by WINDOW, in registry order.
+
+    This is a different axis from `category`, which buckets the picker by who
+    the work is for. The deal team and the back office are both Atlas work, and
+    an agent's category says nothing about which window it belongs in.
+    """
+    splits = split_windows()
+    out: dict[str, list[dict]] = {}
+    for a in active_agents():
+        w = window_for(a.get("group"), splits)
+        if w:
+            out.setdefault(w, []).append(a)
+    return out
+
+
+def group_tree() -> dict[str, list[dict]]:
+    """Active agents bucketed by their full group path (no window collapsing)."""
+    out: dict[str, list[dict]] = {}
+    for a in active_agents():
+        g = a.get("group")
+        if g:
+            out.setdefault(g, []).append(a)
+    return out
 
 
 def set_fields(name: str, **fields) -> dict:

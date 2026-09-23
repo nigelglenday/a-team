@@ -9,6 +9,7 @@ This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0
 The registry becomes the thing agents ask, rather than a file they parse.
 
 ### Added
+- **Window groups, nestable.** An agent's `group` says which window it belongs in, a different axis from `category`. Paths nest (`backoffice/sidekick`), and which node becomes a window is declared separately with `a-team config split-windows`, so the layout can change without re-tagging anything. `a-team layout` rebuilds the whole screen, `a-team groups` shows the tree, `a-team set <agent> --group <path>` assigns one.
 - **`a-team open` takes several agents and opens them as tabs in one window.** The first gets the window, the rest become tabs in it, which is how a row of Associates is normally arranged. `--tab` adds to the frontmost window, `--window` forces one each, and `-c Atlas` opens every active agent in a category.
 - **`a-team open <name>`**: attaches a window to the agent's running session, or starts it if nothing is up. Attaching is the default because an agent on the server is already alive with its context, and a second one beside it splits the work in two with neither half aware of the other. Replaces the separate `agent-window` script.
 - **`a-team archive` / `unarchive`**: take an agent out of the picker while keeping it, and its id, in the registry. Archiving clears `boot`, so an archived agent cannot come back on the next reboot.

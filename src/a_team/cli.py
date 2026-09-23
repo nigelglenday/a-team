@@ -538,6 +538,53 @@ def config_show() -> None:
         print(f"{k}\t{v}")
 
 
+@config_cmd.command("split-windows")
+@click.argument("groups", nargs=-1)
+@click.option("--clear", is_flag=True, help="Remove all splits (top level becomes the window).")
+def split_windows_cmd(groups: tuple[str, ...], clear: bool) -> None:
+    """Group paths that get a window of their own.
+
+    By default a group's TOP-LEVEL segment is its window, so deal/preload and
+    deal/celink share the deal window. Declaring a split promotes a nested
+    group to its own window without re-tagging any agent:
+
+        a-team config split-windows backoffice/sidekick
+
+    With no arguments, prints the current splits. The most specific split wins.
+    """
+    if clear:
+        config.set_setting("split_windows", None)
+        ui.info("Cleared. Top-level group is the window again.")
+        return
+    if not groups:
+        cur = config.split_windows()
+        click.echo("  " + (", ".join(cur) if cur else "none (top level is the window)"))
+        return
+    config.set_setting("split_windows", ",".join(groups))
+    ui.info("Split windows: " + ", ".join(groups))
+    for name, agents in config.groups().items():
+        click.echo(f"  {name}: " + ", ".join(a["name"] for a in agents))
+
+
+@cli.command("groups")
+def groups_cmd() -> None:
+    """Show the group tree and which window each group lands in."""
+    tree = config.group_tree()
+    if not tree:
+        ui.info("No groups set. `a-team set <agent> --group deal`")
+        return
+    splits = config.split_windows()
+    for path in sorted(tree):
+        win = config.window_for(path, splits)
+        mark = "  (own window)" if win == path and "/" in path else ""
+        click.echo(f"  {path:<24} -> window '{win}'{mark}")
+        for a in tree[path]:
+            click.echo(f"      {a['name']}")
+    ungrouped = [a["name"] for a in config.active_agents() if not a.get("group")]
+    if ungrouped:
+        ui.warn("not in any group (skipped by `a-team layout`): " + ", ".join(ungrouped))
+
+
 @config_cmd.command("default-parent")
 @click.argument("path", required=False, default=None)
 @click.option("--unset", is_flag=True, help="Clear the default_parent setting.")
@@ -605,7 +652,7 @@ def rm_cmd(name: str) -> None:
 
 
 @cli.command("open")
-@click.argument("names", nargs=-1, required=True)
+@click.argument("names", nargs=-1)
 @click.option("--new", "force_new", is_flag=True,
               help="Start a fresh session instead of attaching to the running one.")
 @click.option("--label", default=None,
@@ -616,8 +663,11 @@ def rm_cmd(name: str) -> None:
                    "window, several get one window of tabs.")
 @click.option("--category", "-c", default=None,
               help="Open every active agent in this category (e.g. -c Atlas).")
+@click.option("--group", "-g", "group", default=None,
+              help="Open a window group as tabs (e.g. -g deal). See `a-team layout`.")
 def open_cmd(names: tuple[str, ...], force_new: bool, label: str | None,
-             list_only: bool, as_tabs: bool | None, category: str | None) -> None:
+             list_only: bool, as_tabs: bool | None, category: str | None,
+             group: str | None) -> None:
     """Open a window on one or more agents: attach if running, else start.
 
     Attaching is the default because an agent on the server is already alive
@@ -633,6 +683,19 @@ def open_cmd(names: tuple[str, ...], force_new: bool, label: str | None,
         a-team open Celink-Associate Preload-Atlas-Associate RMC-Associate
         a-team open -c Atlas
     """
+    if group:
+        # Match the subtree: -g deal takes deal, deal/preload and below.
+        want = group.rstrip("/")
+        found = [a for a in config.active_agents()
+                 if (a.get("group") or "") == want
+                 or (a.get("group") or "").startswith(want + "/")]
+        if not found:
+            known = sorted(config.group_tree())
+            ui.error(f"no agents in group {group!r}. Known groups: "
+                     + (", ".join(known) or "none"))
+            sys.exit(1)
+        names = tuple(a["name"] for a in found) + tuple(names)
+
     if category:
         want = category.lower()
         picked = [a["name"] for a in config.active_agents()
@@ -641,6 +704,10 @@ def open_cmd(names: tuple[str, ...], force_new: bool, label: str | None,
             ui.error(f"no active agents in category {category!r}")
             sys.exit(1)
         names = tuple(picked) + tuple(names)
+
+    if not names:
+        ui.error("name an agent, or pass -g <group> / -c <category>.")
+        sys.exit(1)
 
     agents = []
     for n in names:
@@ -712,6 +779,70 @@ def _open_one(agent: dict, *, force_new: bool, label: str | None,
         ui.error(str(e))
         sys.exit(1)
     ui.info(f"Started '{agent['name']}'" + (f" (label: {label})" if label else "") + f" on {host}.")
+
+
+@cli.command("layout")
+@click.option("--dry-run", is_flag=True, help="Show the arrangement without opening anything.")
+def layout_cmd(dry_run: bool) -> None:
+    """Rebuild the whole screen: every window group, opened as tabs.
+
+    This is the after-a-reboot command. The arrangement is a property of the
+    registry, so it survives in one place rather than in whoever remembers how
+    the windows were laid out.
+
+    Groups nest: "deal", "backoffice", "backoffice/sidekick". By default the
+    top-level segment is the window. To give a nested group its own window
+    (sidekicks, once they fan out) declare it as a split:
+
+        a-team config split-windows backoffice/sidekick
+
+    Nothing needs re-tagging: the tree stays put and only the layout moves.
+    """
+    gs = config.groups()
+    if not gs:
+        ui.error("no groups defined. Set one with `a-team set <agent> --group deal`.")
+        sys.exit(1)
+
+    for name, agents in gs.items():
+        click.echo(f"  {name}: " + ", ".join(a["name"] for a in agents))
+    if dry_run:
+        return
+
+    for gi, (name, agents) in enumerate(gs.items()):
+        if gi:
+            time.sleep(2.0)  # a beat between windows
+        for i, agent in enumerate(agents):
+            _open_one(agent, force_new=False, label=None,
+                      list_only=False, tab=(i > 0))
+            if i + 1 < len(agents):
+                time.sleep(1.5)
+    ui.info(f"Opened {len(gs)} window(s).")
+
+
+@cli.command("set")
+@click.argument("name")
+@click.option("--group", default=None,
+              help="Group path, slash-nested e.g. deal or backoffice/sidekick ('' clears).")
+@click.option("--boot/--no-boot", "boot", default=None, help="Start on reboot.")
+@click.option("--account", default=None, help="Claude account / grant key.")
+def set_cmd(name: str, group: str | None, boot: bool | None, account: str | None) -> None:
+    """Set registry fields on an agent."""
+    fields: dict = {}
+    if group is not None:
+        fields["group"] = group or None
+    if boot is not None:
+        fields["boot"] = True if boot else None
+    if account is not None:
+        fields["account"] = account or None
+    if not fields:
+        ui.error("nothing to set.")
+        sys.exit(1)
+    try:
+        a = config.set_fields(name, **fields)
+    except ValueError as e:
+        ui.error(str(e))
+        sys.exit(1)
+    ui.info(f"{a['name']}: " + ", ".join(f"{k}={a.get(k)!r}" for k in fields))
 
 
 @cli.command("grants")
