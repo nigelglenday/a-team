@@ -106,8 +106,7 @@ def _group_by_category(agents: list[dict]) -> dict[str, list[dict]]:
         cat = a.get("category") or _UNCATEGORIZED
         groups.setdefault(cat, []).append(a)
     for cat in groups:
-        # Within a category: persistent first, ephemeral after, alpha within each.
-        groups[cat].sort(key=lambda a: (a["kind"] != "persistent", a["name"].lower()))
+        groups[cat].sort(key=lambda a: a["name"].lower())
     return groups
 
 
@@ -308,7 +307,7 @@ def prompt_new_agent(
     default_parent: Optional[str] = None,
 ) -> Optional[dict]:
     """Walk the user through creating a new agent. Returns the new
-    agent dict (with name/path/kind/category), or None if cancelled.
+    agent dict (with name/path/category), or None if cancelled.
 
     Path field default order: explicit `default_path` arg → macOS
     clipboard → `<default_parent>/<name>/` → empty.
@@ -362,21 +361,6 @@ def prompt_new_agent(
             style=_picker_style,
         ).ask()
     if not path:
-        return None
-
-    kind = questionary.select(
-        "Kind:",
-        choices=[
-            questionary.Choice(
-                title="persistent  (restored by `a-team all`)", value="persistent"
-            ),
-            questionary.Choice(
-                title="ephemeral   (one-off; not restored)", value="ephemeral"
-            ),
-        ],
-        style=_picker_style,
-    ).ask()
-    if not kind:
         return None
 
     from .harness import HARNESSES, DEFAULT_HARNESS
@@ -440,7 +424,6 @@ def prompt_new_agent(
     result = {
         "name": name,
         "path": path,
-        "kind": kind,
         "category": category,
         "harness": harness,
         "host": host,
