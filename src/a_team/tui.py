@@ -200,7 +200,7 @@ class ATeamTUI(App):
         table = self.query_one(DataTable)
         table.add_columns("", "agent", "account", "inbox", "path")
         table.focus()
-        self._agents = config.load_agents()
+        self._agents = config.active_agents()
         self.refresh_data()
         self.set_interval(2.0, self.refresh_data)
 
@@ -399,7 +399,7 @@ class ATeamTUI(App):
         except ValueError as exc:
             self.notify(str(exc), severity="error")
             return
-        self._agents = config.load_agents()
+        self._agents = config.active_agents()
         self.refresh_data()
 
     def action_inbox(self) -> None:
@@ -418,7 +418,7 @@ class ATeamTUI(App):
             self._manage_flow(agent)
 
     def action_refresh_now(self) -> None:
-        self._agents = config.load_agents()
+        self._agents = config.active_agents()
         self.refresh_data()
 
     def action_filter(self) -> None:

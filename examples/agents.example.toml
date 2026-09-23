@@ -25,11 +25,10 @@ category = "Work"
 [[agent]]
 name = "API"
 path = "/Users/you/code/api"
-kind = "persistent"
 category = "Work"
+# Only agents with boot = true come back after a reboot (`a-team all`).
+boot = true
 
-# Ephemeral agents are excluded from `a-team all`.
 [[agent]]
 name = "scratch"
 path = "/Users/you/Documents/scratch"
-kind = "ephemeral"

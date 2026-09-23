@@ -3,7 +3,7 @@
 Subcommand layout:
     a-team                  picker (splash + arrow-key + filter)
     a-team <name>           direct-open shortcut for any agent name
-    a-team all              restore every persistent agent
+    a-team all              restore every agent marked boot
     a-team new <name> [<path>]   path defaults to clipboard if omitted
     a-team here [name]      register current folder
     a-team scratch [label]  one-off chat in ~/.a-team/scratch/
@@ -186,20 +186,21 @@ def sync_cmd(dry_run: bool) -> None:
 @cli.command("all")
 @click.pass_context
 def all_cmd(ctx: click.Context) -> None:
-    """Restore every persistent agent (post-reboot)."""
+    """Restore the agents marked boot (post-reboot)."""
     no_splash = ctx.obj.get("no_splash", False)
-    agents = config.load_agents()
-    persistent = [a for a in agents if a["kind"] == "persistent"]
+    # Archived agents are never restored, and booting is opt in: most of the
+    # registry is dormant history, not things that should come back.
+    boot = config.boot_agents()
 
-    if not persistent:
-        ui.warn("No persistent agents registered. Run `a-team new` first.")
+    if not boot:
+        ui.warn("No agents are marked boot = true. Set boot on the ones that should come back.")
         return
 
     if not no_splash:
         ui.print_splash(len(agents))
 
-    ui.info(f"Restoring {len(persistent)} agents…")
-    spawn.open_all(persistent)
+    ui.info(f"Restoring {len(boot)} agents…")
+    spawn.open_all(boot)
     ui.info("Done.")
 
 
@@ -266,12 +267,11 @@ def migrate_cmd(do_apply: bool) -> None:
 
 @cli.command("here")
 @click.argument("name", required=False, default=None)
-@click.option("--ephemeral", is_flag=True, help="Mark as ephemeral (excluded from `a-team all`).")
 @click.option("--category", "-c", default=None, help="Category for grouping in the picker.")
 @click.option("--account", default=None, help="Claude account override (e.g. 'work'). Omit to use the category's default.")
 @click.option("--harness", type=click.Choice(["claude", "codex"]), default=None, help="Harness to run this agent under (default: claude).")
 @click.option("--host", default=None, help="Where the agent lives: 'local' or a host from the [hosts] table (default: local).")
-def here_cmd(name: str | None, ephemeral: bool, category: str | None, account: str | None, harness: str | None, host: str | None) -> None:
+def here_cmd(name: str | None, category: str | None, account: str | None, harness: str | None, host: str | None) -> None:
     """Register the current working directory as an agent.
 
     Name defaults to the directory's basename if omitted. Useful for adding
@@ -289,14 +289,13 @@ def here_cmd(name: str | None, ephemeral: bool, category: str | None, account: s
         sys.exit(1)
     if name is None:
         name = Path(cwd).name
-    kind = "ephemeral" if ephemeral else "persistent"
     try:
-        agent = config.add_agent(name, cwd, kind=kind, category=category, account=account, harness=harness, host=host)
+        agent = config.add_agent(name, cwd, category=category, account=account, harness=harness, host=host)
     except ValueError as e:
         ui.error(str(e))
         sys.exit(1)
     cat_suffix = f", {agent['category']}" if agent.get("category") else ""
-    ui.info(f"Added agent '{agent['name']}' ({agent['kind']}, {agent['harness']}, host={agent['host']}{cat_suffix}) → {agent['path']}")
+    ui.info(f"Added agent '{agent['name']}' ({agent['harness']}, host={agent['host']}{cat_suffix}) → {agent['path']}")
 
 
 def _slugify(label: str) -> str:
@@ -312,7 +311,7 @@ def _scratch_name() -> str:
 
 def _create_scratch(label: str | None) -> dict | None:
     """Create a scratch session: timestamped folder under SCRATCH_DIR,
-    registered as kind=ephemeral, category=Scratch. Returns the agent
+    registered under category=Scratch. Returns the agent
     dict, or None on failure (with an error already printed)."""
     config.SCRATCH_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -337,7 +336,7 @@ def _create_scratch(label: str | None) -> dict | None:
 
     try:
         agent = config.add_agent(
-            name, str(folder), kind="ephemeral", category=config.SCRATCH_CATEGORY,
+            name, str(folder), category=config.SCRATCH_CATEGORY,
         )
     except ValueError as e:
         ui.error(str(e))
@@ -351,7 +350,7 @@ def scratch_cmd(label: str | None) -> None:
     """Create a one-off scratch session and open it immediately.
 
     Scratch sessions live under ~/.a-team/scratch/<timestamp>[_<label>]/,
-    are registered as `kind=ephemeral, category=Scratch`, and skipped by
+    are registered under `category=Scratch`, and are not booted by
     `a-team all`. They appear in the picker under a 'Scratch' section
     capped at the 10 most recent (with 'Show all scratch' to expand).
     """
@@ -365,12 +364,11 @@ def scratch_cmd(label: str | None) -> None:
 @cli.command("new")
 @click.argument("name")
 @click.argument("path", required=False, default=None)
-@click.option("--ephemeral", is_flag=True, help="Mark as ephemeral (excluded from `a-team all`).")
 @click.option("--category", "-c", default=None, help="Category for grouping in the picker.")
 @click.option("--account", default=None, help="Claude account override (e.g. 'work'). Omit to use the category's default.")
 @click.option("--harness", type=click.Choice(["claude", "codex"]), default=None, help="Harness to run this agent under (default: claude).")
 @click.option("--host", default=None, help="Where the agent lives: 'local' or a host from the [hosts] table. The folder is created on that machine.")
-def new_cmd(name: str, path: str | None, ephemeral: bool, category: str | None, account: str | None, harness: str | None, host: str | None) -> None:
+def new_cmd(name: str, path: str | None, category: str | None, account: str | None, harness: str | None, host: str | None) -> None:
     """Register a new agent.
 
     PATH lookup order if omitted:
@@ -392,14 +390,13 @@ def new_cmd(name: str, path: str | None, ephemeral: bool, category: str | None, 
         # With no path given, mirror the local convention: ~/agents/<slug>.
         resolved = path or f"~/agents/{config.slugify(name)}"
 
-    kind = "ephemeral" if ephemeral else "persistent"
     try:
-        agent = config.add_agent(name, resolved, kind=kind, category=category, account=account, harness=harness, host=host_key, create_dir=True)
+        agent = config.add_agent(name, resolved, category=category, account=account, harness=harness, host=host_key, create_dir=True)
     except ValueError as e:
         ui.error(str(e))
         sys.exit(1)
     cat_suffix = f", {agent['category']}" if agent.get("category") else ""
-    ui.info(f"Added agent '{agent['name']}' ({agent['kind']}, {agent['harness']}, host={agent['host']}{cat_suffix}) → {agent['path']}")
+    ui.info(f"Added agent '{agent['name']}' ({agent['harness']}, host={agent['host']}{cat_suffix}) → {agent['path']}")
 
 
 def _resolve_new_path(name: str, path: str | None) -> str | None:
@@ -554,19 +551,20 @@ def help_cmd() -> None:
 
 
 @cli.command("ls")
-def ls_cmd() -> None:
+@click.option("--all", "show_all", is_flag=True, help="Include archived agents.")
+def ls_cmd(show_all: bool) -> None:
     """List registered agents in plain text (pipe-friendly).
 
-    Output: name <TAB> category <TAB> kind <TAB> path
+    Output: name <TAB> category <TAB> path
     """
-    agents = config.load_agents()
+    agents = config.load_agents_normalized() if show_all else config.active_agents()
     if not agents:
         return
     name_width = max(len(a["name"]) for a in agents)
     cat_width = max((len(a.get("category", "")) for a in agents), default=0)
     for a in agents:
         cat = a.get("category", "")
-        print(f"{a['name']:<{name_width}}\t{cat:<{cat_width}}\t{a['kind']:<10}\t{a['path']}")
+        print(f"{a['name']:<{name_width}}\t{cat:<{cat_width}}\t{a['path']}")
 
 
 # ---------------------------------------------------------------------------
@@ -585,7 +583,9 @@ def run_picker(no_splash: bool = False) -> None:
     expand_scratch = False  # toggled by ACTION_SHOW_ALL_SCRATCH
 
     while True:
-        agents = config.load_agents()
+        # The picker shows working agents only. Archived ones stay in the
+        # registry (and in `a-team ls --all`) but are not choices here.
+        agents = config.active_agents()
         # macOS can return EPERM from getcwd() when the cwd's parent permissions
         # change mid-session, the dir is renamed, or iCloud evicts it. Fall back
         # to home rather than crash the picker loop.
@@ -609,7 +609,7 @@ def run_picker(no_splash: bool = False) -> None:
         if not agents:
             ui.info("No agents yet. Let's create your first one.")
             msg = _create_agent_flow(default_path=cwd)
-            if not config.load_agents():
+            if not config.active_agents():
                 return
             ui.console.clear()
             splash_shown = False
@@ -748,7 +748,6 @@ def _create_agent_flow(default_path: str | None = None) -> str | None:
         agent = config.add_agent(
             new["name"],
             str(p),
-            kind=new["kind"],
             category=new.get("category"),
             account=new.get("account"),
             harness=new.get("harness"),
