@@ -77,6 +77,11 @@ In the TUI, `●` with a count means that many live sessions, `·` means stopped
 
 ### Window groups
 
+> Examples here use invented clients (Acme, Northwind). Everything
+> installation-specific — the registry, the per-account grants, the org's own
+> config — lives outside this repo by design, which is what keeps it generic.
+
+
 An agent's `group` says which WINDOW it belongs in, which is a different axis
 from `category` (who the work is for). Groups are slash-nested:
 
