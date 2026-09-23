@@ -4,6 +4,24 @@ All notable changes to `a-team` are documented here.
 
 This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-09-22
+
+The registry becomes the thing agents ask, rather than a file they parse.
+
+### Added
+- **`a-team open <name>`**: attaches a window to the agent's running session, or starts it if nothing is up. Attaching is the default because an agent on the server is already alive with its context, and a second one beside it splits the work in two with neither half aware of the other. Replaces the separate `agent-window` script.
+- **`a-team archive` / `unarchive`**: take an agent out of the picker while keeping it, and its id, in the registry. Archiving clears `boot`, so an archived agent cannot come back on the next reboot.
+- **`a-team grants`**: audits need-to-know wiring. `--check-files` asks each host whether the config files actually exist, `--fix` backfills them from each agent's account. Distinguishes `full`, `HALF` (one of the two halves, which looks correct and is not), `NO FILES` and `NO TENANT`.
+- **`a-team new --sibling <parent>`**: inherits the parent's host, category, account and harness, derives both halves of the grant from the account, and records `parent` so lineage lives in the registry rather than in whoever created it.
+- **`ls --json`, `ls --boot`, `ls --host`**, and `resolve --json` now emits the full record instead of six hand-picked fields. Agents are the main callers here; a caller that has to shell out twice is a caller that will go parse `agents.toml` instead.
+
+### Fixed
+- **`sync` wrote only the MCP half of the guard.** Every advisor session restored after a reboot had tenant isolation, no path deny and no Bash guard. The boot list now carries both, and `session-boot` refuses to start a session whose named guard config is absent rather than starting it unguarded.
+- **Archived agents still appeared in the picker and the TUI**: four call sites loaded the whole registry instead of the active set.
+
+### Removed
+- **The `kind` field (`persistent` / `ephemeral`).** `boot` decides what `a-team all` restores, and it is opt in; `kind` was a second field for the same job that nothing consulted any more, while the picker still sorted on it. `--ephemeral` is gone from `new` and `here`.
+
 ## [0.5.6] - 2026-09-20
 
 - **`atx <agent> -w` opens the session in its own window.** Without it, `atx` takes over the terminal you ran it from, and opening several client sessions side by side meant driving a-team's `spawn.open_agent` by hand. It reuses that same code rather than reimplementing it: a window in the RUNNING Ghostty instance over AppleScript, since `open -na Ghostty --args -e` starts a second instance and fragments the windows, and the tmux session name is passed so `new-session -A` attaches to what is running instead of creating a duplicate.
