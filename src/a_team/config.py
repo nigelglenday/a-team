@@ -245,7 +245,42 @@ def _normalized(agents: list[dict]) -> list[dict]:
             used.add(candidate)
         b["harness"] = _harness.normalize_key(b.get("harness"))
         b["host"] = _hosts.normalize_key(b.get("host"))
+
+        # Fields that used to live in other files. The registry is the single
+        # source of truth; the boot list, the per-session MCP config and the
+        # permissions file are generated from it. Six places once described an
+        # agent and they drifted within a day.
+        #
+        #   session  tmux session name on its host. Also the terminal tab title.
+        #   rc       Remote Control name: the phone list and SendMessage address.
+        #   mcp      --only-mcp config, so the session sees one tenant, not all.
+        #   settings --settings file carrying deny rules and the Bash guard.
+        #   boot     restore this one after a reboot.
+        #   status   active | archived. Archived agents keep their history.
+        #   account  the need-to-know key this agent is scoped to.
+        #   parent   the agent this one was forked from.
+        b.setdefault("session", b["id"])
+        b.setdefault("rc", b.get("name") or b["id"])
+        # Opt in, not out: 67 agents are registered and most are dormant. A
+        # default of True would have a reboot try to start all of them.
+        b.setdefault("boot", False)
+        b.setdefault("status", "active")
+        for optional in ("mcp", "settings", "account", "parent"):
+            b.setdefault(optional, None)
         out.append(b)
+    return out
+
+
+def active_agents() -> list[dict]:
+    """Registered agents that have not been archived."""
+    return [a for a in load_agents_normalized() if a.get("status") != "archived"]
+
+
+def boot_agents(host: str | None = None) -> list[dict]:
+    """Agents to restore after a reboot, optionally filtered to one host."""
+    out = [a for a in active_agents() if a.get("boot")]
+    if host:
+        out = [a for a in out if _hosts.normalize_key(a.get("host")) == _hosts.normalize_key(host)]
     return out
 
 
