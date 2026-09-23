@@ -516,9 +516,9 @@ def update_agent(
 # A session denied only Read simply used Bash instead (verified 2026-09-22),
 # so recording one half and not the other is how a session ends up half
 # guarded while the registry looks correct. Both are derived from the account
-# by `advisor-grants`, so derive both here from the same name.
-GRANT_MCP_DIR = "~/.config/advisor-mcp"
-GRANT_SETTINGS_DIR = "~/.config/advisor-perms"
+# by `associate-grants`, so derive both here from the same name.
+GRANT_MCP_DIR = "~/.config/associate-mcp"
+GRANT_SETTINGS_DIR = "~/.config/associate-perms"
 
 
 def grant_paths(account: str | None) -> tuple[str | None, str | None]:
