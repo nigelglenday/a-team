@@ -63,6 +63,8 @@ a-team open <name>              window on an agent: attach if up, else start
 a-team archive <name>           out of the picker, kept in the registry
 a-team grants --check-files     audit need-to-know wiring, both halves
 a-team sync                     write each host's boot list from the registry
+a-team layout                   rebuild the screen: every group, as tabs
+a-team groups                   the group tree, and which window each lands in
 
 a-team resolve <name> --json    where an agent lives (id, path, host, ssh, harness)
 a-team config show              current settings
@@ -72,6 +74,31 @@ a-team migrate                  backfill stable ids on an older registry
 `new` and `here` take `--host`, `--harness`, `--account` and `--category`.
 
 In the TUI, `●` with a count means that many live sessions, `·` means stopped, and a yellow `?` means the agent's host could not be reached, which is not the same as stopped.
+
+### Window groups
+
+An agent's `group` says which WINDOW it belongs in, which is a different axis
+from `category` (who the work is for). Groups are slash-nested:
+
+```
+deal                     the client Associates and Strategy
+backoffice               ops, sidekick, bookkeeper, concierge
+backoffice/sidekick      nested, and still in the backoffice window
+```
+
+By default a group's top-level segment is its window, so everything under
+`backoffice` shares one. To give a nested group its own window, declare a
+split, and nothing gets re-tagged:
+
+```
+a-team config split-windows backoffice/sidekick
+```
+
+The tree is stable; the layout is not. Keeping them separate means fanning
+sidekicks out into their own window is one command rather than an edit to
+every sidekick.
+
+`a-team layout` opens the lot, one window per group, tabs within.
 
 ### Agents are the main callers
 
