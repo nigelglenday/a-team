@@ -605,27 +605,72 @@ def rm_cmd(name: str) -> None:
 
 
 @cli.command("open")
-@click.argument("name")
+@click.argument("names", nargs=-1, required=True)
 @click.option("--new", "force_new", is_flag=True,
               help="Start a fresh session instead of attaching to the running one.")
 @click.option("--label", default=None,
               help="Name this parallel session. Required to address it by name later.")
 @click.option("--list", "list_only", is_flag=True, help="List live sessions on the agent's host.")
-def open_cmd(name: str, force_new: bool, label: str | None, list_only: bool) -> None:
-    """Open a window on an agent: attach if it is running, else start it.
+@click.option("--tab/--window", "as_tabs", default=None,
+              help="Tabs in one window, or a window each. Default: one name gets a "
+                   "window, several get one window of tabs.")
+@click.option("--category", "-c", default=None,
+              help="Open every active agent in this category (e.g. -c Atlas).")
+def open_cmd(names: tuple[str, ...], force_new: bool, label: str | None,
+             list_only: bool, as_tabs: bool | None, category: str | None) -> None:
+    """Open a window on one or more agents: attach if running, else start.
 
     Attaching is the default because an agent on the server is already alive
     with its context; starting a second one beside it splits the work in two
     and neither half knows about the other.
+
+    Several agents open as TABS IN ONE WINDOW, which is how a row of
+    Associates is normally arranged. The first gets the window, the rest
+    become tabs in it. --window overrides; --tab makes even the first a tab
+    in whatever window is already frontmost.
+
+        a-team open Celink-Associate
+        a-team open Celink-Associate Preload-Atlas-Associate RMC-Associate
+        a-team open -c Atlas
     """
-    try:
-        agent = config.resolve_agent(name)
-    except ValueError as e:
-        ui.error(str(e))
-        sys.exit(2)
-    if not agent:
-        ui.error(f"no agent matches {name!r}")
+    if category:
+        want = category.lower()
+        picked = [a["name"] for a in config.active_agents()
+                  if (a.get("category") or "").lower() == want]
+        if not picked:
+            ui.error(f"no active agents in category {category!r}")
+            sys.exit(1)
+        names = tuple(picked) + tuple(names)
+
+    agents = []
+    for n in names:
+        try:
+            a = config.resolve_agent(n)
+        except ValueError as e:
+            ui.error(str(e))
+            sys.exit(2)
+        if not a:
+            ui.error(f"no agent matches {n!r}")
+            sys.exit(1)
+        agents.append(a)
+
+    if len(agents) > 1 and (label or force_new):
+        # One label cannot name several sessions, and it is the address.
+        ui.error("--label and --new apply to a single agent; open them one at a time.")
         sys.exit(1)
+
+    for i, agent in enumerate(agents):
+        # Default: the first opens a window, the rest become tabs in it. An
+        # explicit --tab/--window wins for every one.
+        tab = as_tabs if as_tabs is not None else (i > 0)
+        _open_one(agent, force_new=force_new, label=label,
+                  list_only=list_only, tab=tab)
+        if i + 1 < len(agents):
+            time.sleep(1.5)  # let Ghostty settle between menu clicks
+
+
+def _open_one(agent: dict, *, force_new: bool, label: str | None,
+              list_only: bool, tab: bool) -> None:
 
     host = agent.get("host") or "local"
     sessions = spawn.tmux_sessions(host)
@@ -647,8 +692,8 @@ def open_cmd(name: str, force_new: bool, label: str | None, list_only: bool) -> 
 
     want = agent.get("session") or agent["id"]
     if want in sessions and not force_new:
-        spawn.attach_window(want, host)
-        ui.info(f"Attached a window to '{want}' on {host}.")
+        spawn.attach_window(want, host, tab=tab)
+        ui.info(f"Attached a {'tab' if tab else 'window'} to '{want}' on {host}.")
         return
 
     if force_new and not label:
