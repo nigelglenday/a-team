@@ -544,8 +544,8 @@ def config_show() -> None:
 def split_windows_cmd(groups: tuple[str, ...], clear: bool) -> None:
     """Group paths that get a window of their own.
 
-    By default a group's TOP-LEVEL segment is its window, so deal/initech and
-    deal/acme share the deal window. Declaring a split promotes a nested
+    By default a group's TOP-LEVEL segment is its window, so deal/acme and
+    deal/northwind share the deal window. Declaring a split promotes a nested
     group to its own window without re-tagging any agent:
 
         a-team config split-windows backoffice/sidekick
@@ -680,11 +680,11 @@ def open_cmd(names: tuple[str, ...], force_new: bool, label: str | None,
     in whatever window is already frontmost.
 
         a-team open Acme-Associate
-        a-team open Acme-Associate Initech-Associate Globex-Associate
+        a-team open Acme-Associate Northwind-Associate Initech-Associate
         a-team open -c Atlas
     """
     if group:
-        # Match the subtree: -g deal takes deal, deal/initech and below.
+        # Match the subtree: -g deal takes deal, deal/acme and below.
         want = group.rstrip("/")
         found = [a for a in config.active_agents()
                  if (a.get("group") or "") == want
