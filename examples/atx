@@ -14,7 +14,7 @@
 #   atx <agent> -n      start an ADDITIONAL parallel session in the same folder
 #   atx <agent> -n --label Acme
 #   atx <agent> --label Acme --grant acme     both halves of the fence
-#   atx <agent> --label Acme --only-mcp ~/.config/advisor-mcp/acme.json
+#   atx <agent> --label Acme --only-mcp ~/.config/associate-mcp/acme.json
 #
 # A label is the session's ADDRESS. "<Agent>: <Label>" is what the phone app
 # shows and what another session passes to SendMessage. Give every parallel
@@ -195,8 +195,8 @@ RC=""
 # Bash to reach what Read denied. Passing one half is a failure that presents
 # as a pass, so --grant is preferred over --only-mcp by hand.
 if [ -n "$GRANT" ]; then
-  [ -z "$ONLY_MCP" ] && ONLY_MCP="~/.config/advisor-mcp/$GRANT.json"
-  [ -z "$SETTINGS" ] && SETTINGS="~/.config/advisor-perms/$GRANT.json"
+  [ -z "$ONLY_MCP" ] && ONLY_MCP="~/.config/associate-mcp/$GRANT.json"
+  [ -z "$SETTINGS" ] && SETTINGS="~/.config/associate-perms/$GRANT.json"
 fi
 
 # A named-but-absent config fences nothing, and claude would start regardless.
@@ -207,7 +207,7 @@ for f in "$ONLY_MCP" "$SETTINGS"; do
   rf="$f"
   if ! ssh -o ConnectTimeout=8 "$SSH_T" "[ -f $rf ]" 2>/dev/null; then
     echo "atx: guard config missing on $HOST: $f" >&2
-    echo "  refusing to start an unguarded session. Run advisor-grants there." >&2
+    echo "  refusing to start an unguarded session. Run associate-grants there." >&2
     exit 1
   fi
 done
