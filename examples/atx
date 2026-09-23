@@ -203,7 +203,7 @@ fi
 for f in "$ONLY_MCP" "$SETTINGS"; do
   [ -z "$f" ] && continue
   # The path is expanded by the REMOTE shell: $HOME here is this machine's,
-  # and the two differ (/Users/moonpie vs /Users/nigelglenday).
+  # and the two differ (the two machines have different usernames).
   rf="$f"
   if ! ssh -o ConnectTimeout=8 "$SSH_T" "[ -f $rf ]" 2>/dev/null; then
     echo "atx: guard config missing on $HOST: $f" >&2

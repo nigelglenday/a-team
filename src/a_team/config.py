@@ -538,7 +538,7 @@ def grant_paths(account: str | None) -> tuple[str | None, str | None]:
     return f"{GRANT_MCP_DIR}/{account}.json", f"{GRANT_SETTINGS_DIR}/{account}.json"
 
 
-# A group is a slash-separated PATH, so it nests: "deal", "deal/preload",
+# A group is a slash-separated PATH, so it nests: "deal", "deal/acme",
 # "backoffice/sidekick". Which node becomes its own window is a separate
 # decision from where an agent sits in the tree, because the tree is stable and
 # the window layout is not: sidekicks fan out into their own window without
