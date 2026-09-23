@@ -26,6 +26,7 @@ would clobber a one-time printf. A backgrounded loop re-emits the agent
 name every second; a trap kills it when claude exits or the window closes.
 """
 
+import os
 import shlex
 import subprocess
 import time
@@ -240,14 +241,22 @@ def tmux_sessions(host: str = _hosts.DEFAULT_HOST) -> list[str] | None:
         # and the whole call read as an unreachable host.
         cmd = ["ssh", "-o", "ConnectTimeout=8", target.ssh_alias,
                " ".join(shlex.quote(c) for c in cmd)]
+    if not target.is_remote and not os.path.exists(TMUX_BIN):
+        # No tmux on this machine at all. That is a definite "nothing is
+        # running here", not a failure to find out, and returning None made a
+        # laptop with no tmux look unreachable.
+        return []
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+    except FileNotFoundError:
+        return []
     except (subprocess.SubprocessError, OSError):
         return None
     if r.returncode != 0:
         # tmux exits non-zero with "no server running" when nothing is up,
         # which IS an answer. An ssh failure is not.
-        if "no server running" in (r.stderr or "").lower():
+        err = (r.stderr or "").lower()
+        if "no server running" in err or "no such file" in err:
             return []
         return None
     return [line.strip() for line in r.stdout.splitlines() if line.strip()]
