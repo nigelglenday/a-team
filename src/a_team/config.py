@@ -510,6 +510,81 @@ def update_agent(
     return target
 
 
+# Need-to-know is enforced in two halves, and neither is sufficient alone:
+# an --only-mcp file fences the session to its own tenant, and a --settings
+# file denies Read on other accounts' paths AND installs the Bash guard.
+# A session denied only Read simply used Bash instead (verified 2026-09-22),
+# so recording one half and not the other is how a session ends up half
+# guarded while the registry looks correct. Both are derived from the account
+# by `advisor-grants`, so derive both here from the same name.
+GRANT_MCP_DIR = "~/.config/advisor-mcp"
+GRANT_SETTINGS_DIR = "~/.config/advisor-perms"
+
+
+def grant_paths(account: str | None) -> tuple[str | None, str | None]:
+    """The (mcp, settings) config paths for an account, by convention.
+
+    Returns (None, None) for an agent with no account: it is not fenced, and
+    saying otherwise would invent a guard that does not exist.
+    These are paths on the agent's OWN host; existence is not checked here.
+    """
+    if not account:
+        return None, None
+    return f"{GRANT_MCP_DIR}/{account}.json", f"{GRANT_SETTINGS_DIR}/{account}.json"
+
+
+def set_fields(name: str, **fields) -> dict:
+    """Set arbitrary registry fields on one agent, in one write.
+
+    A field given as None is removed, so a default stays unwritten rather than
+    being stored as an explicit copy of itself that can later disagree.
+    Returns the stored record.
+    """
+    agents = load_agents()
+    resolved = resolve_agent(name)
+    if not resolved:
+        raise ValueError(f"agent '{name}' not found")
+    target = next((a for a in agents if a["name"] == resolved["name"]), None)
+    if target is None:
+        raise ValueError(f"agent '{name}' not found")
+    for key, value in fields.items():
+        if value is None:
+            target.pop(key, None)
+        else:
+            target[key] = value
+    save_agents(agents)
+    return _normalized([target])[0]
+
+
+def set_status(name: str, status: str) -> dict:
+    """Archive or reactivate an agent. Archived agents stay in the registry
+    and keep their id, but drop out of the picker, the TUI, `a-team ls` and
+    `a-team all`. Nothing on disk is touched.
+
+    `status` is "archived" or "active". Active is the default, so it is stored
+    as the absence of the key rather than as an explicit value: an unwritten
+    default cannot disagree with a written one.
+    """
+    if status not in ("active", "archived"):
+        raise ValueError(f"status must be 'active' or 'archived', not '{status}'")
+    agents = load_agents()
+    resolved = resolve_agent(name)
+    if not resolved:
+        raise ValueError(f"agent '{name}' not found")
+    target = next((a for a in agents if a["name"] == resolved["name"]), None)
+    if target is None:
+        raise ValueError(f"agent '{name}' not found")
+
+    if status == "archived":
+        target["status"] = "archived"
+        # An archived agent must not come back on the next reboot.
+        target.pop("boot", None)
+    else:
+        target.pop("status", None)
+    save_agents(agents)
+    return target
+
+
 def list_categories() -> list[str]:
     """Return all distinct category names currently in use, in insertion order."""
     seen: list[str] = []

@@ -179,6 +179,70 @@ def open_agent(
             pass
 
 
+TMUX_BIN = "/opt/homebrew/bin/tmux"
+
+
+def tmux_sessions(host: str = _hosts.DEFAULT_HOST) -> list[str] | None:
+    """tmux session names on a host, or None if the host could not be reached.
+
+    None is not []: "cannot tell" and "nothing running" lead to different
+    actions, and collapsing them makes an unreachable host look idle.
+    """
+    target = _hosts.get(host)
+    cmd = [TMUX_BIN, "ls", "-F", "#S"]
+    if target.is_remote:
+        # Every argument must survive a second shell on the far side. "#S"
+        # unquoted starts a COMMENT there, so `tmux ls -F` ran with no format
+        # and the whole call read as an unreachable host.
+        cmd = ["ssh", "-o", "ConnectTimeout=8", target.ssh_alias,
+               " ".join(shlex.quote(c) for c in cmd)]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+    except (subprocess.SubprocessError, OSError):
+        return None
+    if r.returncode != 0:
+        # tmux exits non-zero with "no server running" when nothing is up,
+        # which IS an answer. An ssh failure is not.
+        if "no server running" in (r.stderr or "").lower():
+            return []
+        return None
+    return [line.strip() for line in r.stdout.splitlines() if line.strip()]
+
+
+def attach_window(session: str, host: str = _hosts.DEFAULT_HOST) -> None:
+    """Open a Ghostty window attached to an existing session on `host`.
+
+    Never `open -na Ghostty`: -n starts a separate copy of the application
+    every time, and six accumulated that way in one evening. macOS offers no
+    way to ask a running app for a new window from the command line, so this
+    drives File > New Window the same way open_agent does.
+
+    MOSH_TITLE_NOPREFIX stops mosh prefixing every tab with "[mosh] ", which
+    pushed the distinguishing part of the name off the end of the tab.
+    """
+    target = _hosts.get(host)
+    if target.is_remote:
+        command = (
+            f"MOSH_TITLE_NOPREFIX=1 mosh {target.ssh_alias} -- "
+            f"{TMUX_BIN} attach -t {shlex.quote(session)}"
+        )
+    else:
+        command = f"{TMUX_BIN} attach -t {shlex.quote(session)}"
+
+    try:
+        prev = subprocess.run(["pbpaste"], capture_output=True).stdout
+    except Exception:
+        prev = b""
+    subprocess.run(["pbcopy"], input=command.encode(), check=True)
+    try:
+        subprocess.run(["osascript", "-e", _APPLESCRIPT], check=True)
+    finally:
+        try:
+            subprocess.run(["pbcopy"], input=prev, check=False)
+        except Exception:
+            pass
+
+
 def open_all(agents: list[dict], delay_between: float = 1.0) -> None:
     """Open Ghostty windows for every agent, respecting each agent's saved
     harness AND resolved account config (both previously dropped here), with a

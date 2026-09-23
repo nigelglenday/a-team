@@ -58,6 +58,11 @@ a-team here [name]              register the current working directory
 a-team scratch [label]          one-off chat in ~/.a-team/scratch/<timestamp>[_<label>]/
 a-team rm <name>                unregister (folder is kept)
 a-team ls                       plain list, pipe-friendly
+a-team ls --json                full records, for scripts and agents
+a-team open <name>              window on an agent: attach if up, else start
+a-team archive <name>           out of the picker, kept in the registry
+a-team grants --check-files     audit need-to-know wiring, both halves
+a-team sync                     write each host's boot list from the registry
 
 a-team resolve <name> --json    where an agent lives (id, path, host, ssh, harness)
 a-team config show              current settings
@@ -67,6 +72,27 @@ a-team migrate                  backfill stable ids on an older registry
 `new` and `here` take `--host`, `--harness`, `--account` and `--category`.
 
 In the TUI, `●` with a count means that many live sessions, `·` means stopped, and a yellow `?` means the agent's host could not be reached, which is not the same as stopped.
+
+### Agents are the main callers
+
+Most of this is driven by other agents, not typed by a person, so the
+machine-readable surfaces are the primary ones: `resolve --json` and
+`ls --json` emit the full record (every field, plus the derived `ssh` alias)
+so a caller never has to parse `agents.toml` itself. Commands are
+non-interactive, exit non-zero on failure, and say what they did.
+
+`a-team grants` audits need-to-know. It has two halves, and reporting one as
+success is worse than reporting neither:
+
+```
+a-team grants                 # what the registry says
+a-team grants --check-files   # what is actually on each host
+a-team grants --fix           # backfill both halves from each agent's account
+```
+
+`full` means fenced to its own tenant and fenced off other customers' paths.
+`HALF` means one of the two, which looks correct and is not. `NO TENANT` means
+the fence exists but grants nothing: no Atlas account for that client yet.
 
 ### Without the picker
 
