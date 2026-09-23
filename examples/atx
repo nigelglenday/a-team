@@ -13,6 +13,7 @@
 #   atx <agent>         attach to that agent's session, starting it if needed
 #   atx <agent> -n      start an ADDITIONAL parallel session in the same folder
 #   atx <agent> -n --label Acme
+#   atx <agent> --label Acme --grant acme     both halves of the fence
 #   atx <agent> --label Acme --only-mcp ~/.config/advisor-mcp/acme.json
 #
 # A label is the session's ADDRESS. "<Agent>: <Label>" is what the phone app
@@ -56,6 +57,8 @@ LABEL=""
 # Claude Code 2.1.267: with --strict-mcp-config a session sees exactly what the
 # file names and none of the 19 user-scope servers.
 ONLY_MCP=""
+SETTINGS=""
+GRANT=""
 PICK=""
 AGENT=""
 while [ $# -gt 0 ]; do
@@ -66,6 +69,8 @@ while [ $# -gt 0 ]; do
     -n|--new)    NEWSESS=1; shift ;;
     --label)     LABEL="$2"; NEWSESS=1; shift 2 ;;
     --only-mcp)  ONLY_MCP="$2"; shift 2 ;;
+    --settings)  SETTINGS="$2"; shift 2 ;;
+    --grant)     GRANT="$2"; shift 2 ;;
     -L|--list)   LISTSESS=1; shift ;;
     -s|--session) PICK="$2"; shift 2 ;;
     -h|--help)   usage; exit 0 ;;
@@ -184,8 +189,38 @@ fi
 
 RC=""
 [ "$HARNESS" = "claude" ] && RC="--remote-control $(printf '%q' "$RC_NAME")"
+# --grant <account> is the safe way to ask for a fence: it names BOTH halves,
+# so neither can be forgotten. Need-to-know is the mcp file AND the settings
+# file (Read denies plus the Bash guard); a session given only the first used
+# Bash to reach what Read denied. Passing one half is a failure that presents
+# as a pass, so --grant is preferred over --only-mcp by hand.
+if [ -n "$GRANT" ]; then
+  [ -z "$ONLY_MCP" ] && ONLY_MCP="~/.config/advisor-mcp/$GRANT.json"
+  [ -z "$SETTINGS" ] && SETTINGS="~/.config/advisor-perms/$GRANT.json"
+fi
+
+# A named-but-absent config fences nothing, and claude would start regardless.
+for f in "$ONLY_MCP" "$SETTINGS"; do
+  [ -z "$f" ] && continue
+  # The path is expanded by the REMOTE shell: $HOME here is this machine's,
+  # and the two differ (/Users/moonpie vs /Users/nigelglenday).
+  rf="$f"
+  if ! ssh -o ConnectTimeout=8 "$SSH_T" "[ -f $rf ]" 2>/dev/null; then
+    echo "atx: guard config missing on $HOST: $f" >&2
+    echo "  refusing to start an unguarded session. Run advisor-grants there." >&2
+    exit 1
+  fi
+done
+
+if [ -n "$ONLY_MCP" ] && [ -z "$SETTINGS" ]; then
+  echo "atx: warning: --only-mcp without --settings fences the tenant but NOT" >&2
+  echo "  the filesystem; Bash can still reach other customers' folders." >&2
+  echo "  Prefer --grant <account>, which wires both." >&2
+fi
+
 STRICT=""
 [ -n "$ONLY_MCP" ] && STRICT=" --strict-mcp-config --mcp-config $(printf '%q' "$ONLY_MCP")"
+[ -n "$SETTINGS" ] && STRICT="$STRICT --settings $(printf '%q' "$SETTINGS")"
 REMOTE_CMD="cd $(printf '%q' "$PATH_") && $HARNESS $RC$STRICT"
 
 if echo "$EXISTING" | grep -qx "$SESS"; then
