@@ -64,7 +64,7 @@ a-team config show              current settings
 a-team migrate                  backfill stable ids on an older registry
 ```
 
-`new` and `here` take `--host`, `--harness`, `--account`, `--category` and `--ephemeral`.
+`new` and `here` take `--host`, `--harness`, `--account` and `--category`.
 
 In the TUI, `●` with a count means that many live sessions, `·` means stopped, and a yellow `?` means the agent's host could not be reached, which is not the same as stopped.
 
@@ -112,16 +112,17 @@ category = "Personal"
 [[agent]]
 name = "Webapp"
 path = "/Users/you/code/webapp"
-kind = "persistent"
 category = "Work"
+boot = true
 
 [[agent]]
 name = "scratch"
 path = "/Users/you/Documents/scratch"
-kind = "ephemeral"
 ```
 
-`kind = "persistent"` agents are restored by `a-team all`. `kind = "ephemeral"` are not.
+`boot = true` agents are restored by `a-team all`; it is opt in, so everything
+else stays dormant until you open it. `status = "archived"` keeps an agent in
+the registry but out of the picker, the TUI and `a-team ls` (`ls --all` shows it).
 
 `category` groups agents in the picker. Order in the file = order in the picker.
 
