@@ -808,15 +808,35 @@ def layout_cmd(dry_run: bool) -> None:
     if dry_run:
         return
 
+    failed: list[str] = []
     for gi, (name, agents) in enumerate(gs.items()):
         if gi:
             time.sleep(2.0)  # a beat between windows
-        for i, agent in enumerate(agents):
-            _open_one(agent, force_new=False, label=None,
-                      list_only=False, tab=(i > 0))
-            if i + 1 < len(agents):
+        opened = 0
+        for agent in agents:
+            # A local agent with no tmux session is almost always the session
+            # you are typing in. Starting a second copy of it is never what
+            # rebuilding a layout means, so say so and move on.
+            host = agent.get("host") or "local"
+            if host == "local" and not spawn.tmux_sessions(host):
+                ui.warn(f"skipping {agent['name']}: local and not in tmux "
+                        f"(probably this session). Open it yourself if you meant to.")
+                continue
+            try:
+                # The first one that actually opens gets the window; the rest
+                # are tabs in it. Counting successes, not position, so a failure
+                # at the head does not leave the group with no window.
+                _open_one(agent, force_new=False, label=None,
+                          list_only=False, tab=(opened > 0))
+                opened += 1
+            except SystemExit:
+                # One unreachable agent must not abandon the other ten.
+                failed.append(agent["name"])
+            if opened < len(agents):
                 time.sleep(1.5)
     ui.info(f"Opened {len(gs)} window(s).")
+    if failed:
+        ui.warn("could not open: " + ", ".join(failed))
 
 
 @cli.command("set")
