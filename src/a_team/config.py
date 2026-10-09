@@ -160,6 +160,11 @@ def get_default_parent() -> Path | None:
 _DEFAULT_ACCOUNTS = {
     "personal": "",  # "" => default ~/.claude (no CLAUDE_CONFIG_DIR)
 }
+# Which account an agent gets when nothing else matches. Override with
+# `default_account = "<name>"` under [settings] in agents.toml. This has to be configurable: the
+# moment "personal" names a NON-default config dir, every uncategorised agent
+# would silently follow it, which is the opposite of what a default is for.
+_FALLBACK_ACCOUNT = "personal"
 _DEFAULT_ACCOUNT_BY_CATEGORY: dict = {}
 
 
@@ -183,17 +188,33 @@ def load_account_by_category() -> dict:
     return {**_DEFAULT_ACCOUNT_BY_CATEGORY, **_load_raw().get("account_by_category", {})}
 
 
+def load_default_account() -> str:
+    """The account used when no override and no category rule matches."""
+    return str(get_setting("default_account") or _FALLBACK_ACCOUNT)
+
+
 def resolve_account(agent: dict) -> str:
-    """Account name for an agent: explicit override -> category rule -> 'personal'."""
+    """Account name for an agent: explicit override -> category rule -> default.
+
+    The per-agent `account` field counts as a login override ONLY if it names a
+    key in [accounts]. Deployments also use `account` for other per-agent
+    bookkeeping (here, which need-to-know grant set a session gets), and those
+    names are not logins. Honouring them unconditionally had two effects, both
+    silent: an unknown name resolved to "" and so to the default root, and it
+    SKIPPED the category rule on the way, so a Personal-category agent that also
+    carried a grant name did not get the personal login. An unknown account name
+    is not a login, so it is ignored here.
+    """
+    accounts = load_accounts()
     explicit = agent.get("account")
-    if explicit:
+    if explicit and explicit in accounts:
         return explicit
     cat = agent.get("category")
     if cat:
         mapped = load_account_by_category().get(cat)
         if mapped:
             return mapped
-    return "personal"
+    return load_default_account()
 
 
 def resolve_config_dir(agent: dict, harness: str | None = None) -> str | None:
