@@ -4,6 +4,27 @@ All notable changes to `a-team` are documented here.
 
 This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **An unknown `account` name is no longer treated as a login.** The per-agent `account` field selects a
+  Claude login only if it names a key in `[accounts]`. Deployments also use that field for other
+  per-agent bookkeeping (need-to-know grant sets, in the one this was found in), and honouring those
+  names had two silent effects: the name resolved to `""` and so to the default root, and it skipped the
+  category rule on the way, so an agent that had both a category rule and an unrelated `account` value
+  did not get the login its category specified.
+- **The fallback account is configurable**, as `default_account` under `[settings]`, defaulting to
+  `personal` as before. It has to be: the built-in fallback is *named* `personal`, so the moment
+  `personal` maps to a non-default config dir, every uncategorised agent silently follows it, which is
+  the opposite of a default.
+
+### Added
+- **`a-team sync` writes the Claude config dir** as a sixth column of the generated boot list, so a host
+  that restores its own sessions puts each one back on the right login. `-` means the default root.
+  Readers should treat a missing or `-` column as the default. Note the config dir is also where
+  `projects/` history lives, so moving an agent between logins loses its `--continue` history unless the
+  matching `projects/<slug>/` is copied across.
+
 ## [0.6.0] - 2026-09-22
 
 The registry becomes the thing agents ask, rather than a file they parse.
