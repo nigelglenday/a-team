@@ -848,7 +848,7 @@ def layout_cmd(dry_run: bool) -> None:
 @click.option("--group", default=None,
               help="Group path, slash-nested e.g. deal or backoffice/sidekick ('' clears).")
 @click.option("--boot/--no-boot", "boot", default=None, help="Start on reboot.")
-@click.option("--account", default=None, help="Claude account / grant key.")
+@click.option("--account", default=None, help="Account key. Selects the Claude login only if it names a key in [accounts]; otherwise it is just a per-agent label and the category rule picks the login.")
 def set_cmd(name: str, group: str | None, boot: bool | None, account: str | None) -> None:
     """Set registry fields on an agent."""
     fields: dict = {}
