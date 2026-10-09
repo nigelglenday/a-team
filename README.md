@@ -234,7 +234,7 @@ work = "~/.claude-work"
 Work = "work"
 ```
 
-An agent's account resolves as: an explicit `account = "work"` on the agent → the category rule → `personal`. So with the rule above, a `category = "Work"` agent runs on the `work` profile automatically; set `account` on an individual agent to override (e.g. force one back to `personal`). To set a profile up, run `CLAUDE_CONFIG_DIR=~/.claude-work claude` once and `/login`. Only `personal` ships as a built-in default; define any other profiles and rules in the tables above.
+An agent's account resolves as: an explicit `account = "work"` on the agent → the category rule → the default account. **An explicit `account` counts only if it names a key in `[accounts]`**: deployments also use that field for other per-agent bookkeeping, and an unknown name is not a login, so it is ignored here rather than silently resolving to the default root and skipping the category rule on the way. The default account is `personal` unless you set `default_account` under `[settings]`; set it as soon as `personal` names a real config dir, or every uncategorised agent follows the personal login. So with the rule above, a `category = "Work"` agent runs on the `work` profile automatically; set `account` on an individual agent to override (e.g. force one back to `personal`). To set a profile up, run `CLAUDE_CONFIG_DIR=~/.claude-work claude` once and `/login`. Only `personal` ships as a built-in default; define any other profiles and rules in the tables above.
 
 ## How it spawns windows
 

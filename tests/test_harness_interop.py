@@ -206,6 +206,64 @@ class ConfigDirIsolation(_TempRegistry):
         self.assertEqual(config.resolve_config_dir(agent), str(Path("~/.claude-work").expanduser()))
 
 
+class LoginResolution(_TempRegistry):
+    """A login is selected by category; an unknown `account` name is not a login."""
+
+    def test_grant_name_in_account_does_not_pick_a_login(self):
+        """account = "celink" is a grant set, not a login, so the CATEGORY rule wins.
+
+        Before this, the explicit field was honoured unconditionally: "celink" is
+        absent from [accounts] so it resolved to "" and the default root, and it
+        skipped the category rule on the way. A Personal agent carrying a grant
+        name therefore did NOT get the personal login.
+        """
+        self.write(
+            """
+            [accounts]
+            personal = "~/.claude-personal"
+            [account_by_category]
+            Personal = "personal"
+
+            [[agent]]
+            id = "pf"
+            name = "PF"
+            path = "%s"
+            harness = "claude"
+            category = "Personal"
+            account = "celink"
+            """
+            % self.workdir
+        )
+        agent = config.resolve_agent("pf")
+        self.assertEqual(config.resolve_config_dir(agent),
+                         str(Path("~/.claude-personal").expanduser()))
+
+    def test_default_account_is_configurable(self):
+        """An uncategorised agent follows default_account, not the name "personal".
+
+        Once "personal" names a real config dir, a hardcoded fallback of
+        "personal" would put every unspecified agent on the personal login.
+        """
+        self.write(
+            """
+            [settings]
+            default_account = "atlas"
+            [accounts]
+            atlas = ""
+            personal = "~/.claude-personal"
+
+            [[agent]]
+            id = "un"
+            name = "Unfiled"
+            path = "%s"
+            harness = "claude"
+            """
+            % self.workdir
+        )
+        agent = config.resolve_agent("un")
+        self.assertIsNone(config.resolve_config_dir(agent))
+
+
 class LaunchCommand(unittest.TestCase):
     """The bash command a-team pastes into Ghostty carries the right harness."""
 
