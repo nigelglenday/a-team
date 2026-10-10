@@ -19,6 +19,7 @@ The ssh target must already work non-interactively (`ssh <target> true`).
 
 from __future__ import annotations
 
+import os
 import shlex
 import subprocess
 from dataclasses import dataclass
@@ -80,14 +81,33 @@ class Host:
         remote: attach-or-create a named tmux session on that host, so the agent
         survives this window closing, and attach over mosh (ssh fallback)."""
         if not self.is_remote:
-            return f"cd {shlex.quote(path)} && {engine_cmd}"
-        inner = f"cd {shlex.quote(path)} && {engine_cmd}"
+            # Expand ~ HERE: shlex.quote would make it a literal '~/...' and
+            # the cd would fail. Safe locally, because this is our own home.
+            return f"cd {shlex.quote(os.path.expanduser(path))} && {engine_cmd}"
+        # A remote ~ must expand on the REMOTE machine, whose home is a
+        # different path (nigelglenday vs moonpie), so it must NOT be expanded
+        # here. Hand the remote shell "$HOME" and quote only the remainder.
+        inner = f"cd {_remote_cd_target(path)} && {engine_cmd}"
         tmux = f"tmux new-session -A -s {shlex.quote(session)} {shlex.quote(inner)}"
         return (
             f"mosh {self.ssh_alias} -- {tmux} "
             f"|| ssh -t {self.ssh_alias} {shlex.quote(tmux)}"
         )
 
+
+
+def _remote_cd_target(path: str) -> str:
+    """Quote a path for a cd on the remote host, keeping ~ expandable there.
+
+    shlex.quote("~/x") gives '~/x', which a shell treats as a literal and the
+    cd fails. The remote home differs from ours, so expanding it locally is
+    wrong too. Emit "$HOME"/'rest' instead: the remote shell expands $HOME and
+    the remainder stays quoted."""
+    if path == "~":
+        return '"$HOME"'
+    if path.startswith("~/"):
+        return '"$HOME"/' + shlex.quote(path[2:])
+    return shlex.quote(path)
 
 LOCAL = Host(key=DEFAULT_HOST, label="This Mac", ssh_alias=None)
 
