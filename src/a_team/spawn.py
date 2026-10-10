@@ -276,15 +276,26 @@ def attach_window(session: str, host: str = _hosts.DEFAULT_HOST,
 
     `tab` opens it as a tab in the frontmost window instead of its own window,
     which is how a row of Associates is normally arranged.
+
+    Attach-or-create, not attach. `tmux attach -t` exits when the session is not
+    there, which leaves a dead window with no error on screen: over mosh it keeps
+    showing the last frame it received, so a frozen window reads as an idle one.
+    After a reboot that is every window opened this way, while the ones launched
+    through Host.launch_command, which already used `new-session -A`, reattach
+    themselves. Fourteen windows needed rescuing by hand and three never could,
+    because they named sessions that had since been renamed.
+
+    So use the same attach-or-create the launch path uses. The only change in
+    behaviour is that opening a window for a session that does not exist now
+    creates an empty one instead of failing, which is what `a-team open` has
+    always done.
     """
     target = _hosts.get(host)
+    tmux_cmd = f"{TMUX_BIN} new-session -A -s {shlex.quote(session)}"
     if target.is_remote:
-        command = (
-            f"MOSH_TITLE_NOPREFIX=1 mosh {target.ssh_alias} -- "
-            f"{TMUX_BIN} attach -t {shlex.quote(session)}"
-        )
+        command = f"MOSH_TITLE_NOPREFIX=1 mosh {target.ssh_alias} -- {tmux_cmd}"
     else:
-        command = f"{TMUX_BIN} attach -t {shlex.quote(session)}"
+        command = tmux_cmd
 
     try:
         prev = subprocess.run(["pbpaste"], capture_output=True).stdout
