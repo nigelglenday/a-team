@@ -9,6 +9,11 @@ from pathlib import Path
 
 import tomli_w
 
+try:
+    import tomlkit  # keeps comments when rewriting the registry
+except ImportError:  # pragma: no cover - optional
+    tomlkit = None
+
 from . import harness as _harness
 from . import hosts as _hosts
 
@@ -54,16 +59,44 @@ def _load_raw() -> dict:
         return tomllib.load(f)
 
 
+def _render(data: dict, existing: str | None) -> bytes:
+    """Serialize the registry, keeping comments on tables that did not change.
+
+    `tomli_w` drops every comment, because TOML writers serialize values and a
+    comment is not a value. That matters here: the agent blocks are machine
+    written, but [settings], [accounts] and [hosts] are hand maintained and the
+    comments are where the reasoning lives. Editing one agent silently deleted
+    the note explaining why `default_account` has to be set, which is the kind of
+    loss nobody notices until the explanation is needed.
+
+    So round-trip through tomlkit when it is available and touch only the keys
+    whose values actually differ. Assigning a table replaces it and takes its
+    comments with it, so an unchanged table is left completely alone. Without
+    tomlkit this falls back to the old behaviour rather than failing.
+    """
+    if tomlkit is None or not existing:
+        return tomli_w.dumps(data).encode()
+    doc = tomlkit.parse(existing)
+    for key, value in data.items():
+        if key not in doc or doc[key] != value:
+            doc[key] = value
+    for key in [k for k in doc if k not in data]:
+        del doc[key]
+    return tomlkit.dumps(doc).encode()
+
+
 def _save_raw(data: dict) -> None:
     """Write the registry atomically: serialize to a temp file in the same
     directory, then os.replace() over the target. A crash mid-write leaves the
     old registry intact rather than a truncated file."""
     _ensure_config_exists()
     p = config_path()
+    existing = p.read_text() if p.exists() else None
+    payload = _render(data, existing)
     tmp = p.with_name(p.name + f".tmp.{os.getpid()}")
     try:
         with tmp.open("wb") as f:
-            tomli_w.dump(data, f)
+            f.write(payload)
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp, p)
