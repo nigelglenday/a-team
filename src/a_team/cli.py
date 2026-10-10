@@ -189,6 +189,35 @@ def sync_cmd(dry_run: bool) -> None:
                 click.echo(f"  {host}: FAILED to write ({proc.stderr.strip()[:120]})", err=True)
                 continue
         click.echo(f"  {host}: wrote {len(agents)} agents to {target}")
+        _push_tab_titles(host, agents)
+
+
+# The terminal tab is titled from the tmux @agent option (toolkit's tmux.conf
+# reads it, falling back to #S). The tmux session name comes from the stable
+# agent id, so it cannot carry a rename: without this, renaming an agent left
+# every open tab showing the old name until the session was restarted.
+def _push_tab_titles(host: str, agents: list[dict]) -> None:
+    import subprocess
+    from pathlib import Path as _P
+    # session \t display-name, over stdin: agent names are user data and must
+    # never be spliced into a shell command line.
+    body = "".join(f"{a['session']}\t{a['name']}\n" for a in agents)
+    script = (
+        'command -v tmux >/dev/null 2>&1 || exit 0; '
+        'n=0; while IFS="\t" read -r s nm; do '
+        '  tmux has-session -t "$s" 2>/dev/null || continue; '
+        '  tmux set -t "$s" @agent "$nm" 2>/dev/null && n=$((n+1)); '
+        '  tmux refresh-client -t "$s" 2>/dev/null; '
+        'done; echo "$n"'
+    )
+    cmd = ["sh", "-c", script] if host == "local" else ["ssh", host, script]
+    try:
+        proc = subprocess.run(cmd, input=body, text=True, capture_output=True, timeout=30)
+    except Exception:
+        return
+    n = (proc.stdout or "").strip().splitlines()
+    if proc.returncode == 0 and n and n[-1].isdigit() and int(n[-1]):
+        click.echo(f"  {host}: retitled {n[-1]} live tab(s)")
 
 
 @cli.command("all")
