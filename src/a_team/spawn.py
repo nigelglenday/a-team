@@ -133,12 +133,18 @@ def _build_command(
     a Claude config dir can never leak into Codex."""
     seq = f"\\e]0;{display_name}\\a\\e]1;{display_name}\\a\\e]2;{display_name}\\a"
     h = host if host is not None else _hosts.LOCAL
-    # Remote agents start with Remote Control on, named after the agent. Two
+    # Every agent starts with Remote Control on, named after itself. Two
     # reasons: the session is then reachable from the phone and by SendMessage
     # from other sessions, and it carries a real name instead of the
-    # auto-generated `hostname-ancient-wirth` the runtime would pick. Local
-    # agents are left alone: you are already sitting at that machine.
-    rc_args = harness.remote_control_args(display_name) if h.is_remote else ""
+    # auto-generated `hostname-ancient-wirth` the runtime would pick.
+    #
+    # Local agents used to be skipped, on the grounds that you are sitting at
+    # that machine anyway. That stopped being true once the phone became a real
+    # surface: an M4 session cannot be named any other way. The flag is read
+    # ONLY at a conversation's first registration and is ignored on every
+    # resume, and `/rc` can only auto-generate, so a session that starts without
+    # it can never be given a chosen name. See toolkit/TRAPS.md.
+    rc_args = harness.remote_control_args(display_name)
     engine_cmd = harness.launch_command(session_mode, rc_args)
     # Account config is a local-machine concept (CLAUDE_CONFIG_DIR). A remote
     # host runs under its OWN login, so we never export it across the SSH hop.
