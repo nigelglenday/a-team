@@ -12,6 +12,7 @@ synthetic.
 import os
 import tempfile
 import textwrap
+import pathlib
 import unittest
 from pathlib import Path
 
@@ -204,6 +205,35 @@ class ConfigDirIsolation(_TempRegistry):
         )
         agent = config.resolve_agent("cl")
         self.assertEqual(config.resolve_config_dir(agent), str(Path("~/.claude-work").expanduser()))
+
+
+class AttachSelfHeals(unittest.TestCase):
+    """A window opened at a session must survive that session going away.
+
+    `tmux attach -t` exits when the session is missing, and over mosh that leaves
+    a window frozen on its last frame rather than showing an error. After a
+    reboot every such window is dead and looks idle.
+    """
+
+    def _command(self, remote: bool):
+        """The command attach_window would paste, without opening a window."""
+        import shlex
+        from a_team import spawn
+        session = "Some-Agent"
+        tmux = f"{spawn.TMUX_BIN} new-session -A -s {shlex.quote(session)}"
+        return f"MOSH_TITLE_NOPREFIX=1 mosh server -- {tmux}" if remote else tmux
+
+    def test_source_uses_attach_or_create(self):
+        src = pathlib.Path(__file__).resolve().parents[1] / "src/a_team/spawn.py"
+        body = src.read_text()
+        start = body.index("def attach_window")
+        end = body.index("\ndef ", start + 1)
+        fn = body[start:end]
+        code = "\n".join(l for l in fn.splitlines() if not l.strip().startswith("#"))
+        # the docstring explains the old form, so look at what is actually built
+        built = code.split('"""', 2)[-1]
+        self.assertIn("new-session -A -s", built)
+        self.assertNotIn("attach -t", built)
 
 
 class RegistryComments(_TempRegistry):
