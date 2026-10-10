@@ -206,6 +206,50 @@ class ConfigDirIsolation(_TempRegistry):
         self.assertEqual(config.resolve_config_dir(agent), str(Path("~/.claude-work").expanduser()))
 
 
+class RegistryComments(_TempRegistry):
+    """Editing an agent must not delete the comments on hand-written tables.
+
+    A TOML writer serializes values, and a comment is not a value, so the obvious
+    implementation drops every one. The agent blocks are machine written, but
+    [settings] and [accounts] are maintained by hand and the comments are where
+    the reasoning lives.
+    """
+
+    def test_editing_an_agent_keeps_comments(self):
+        self.write(
+            """
+            # why the default account is what it is
+            [settings]
+            # this line explains a trap and must survive
+            default_account = "atlas"
+
+            [accounts]
+            # atlas is the default root
+            atlas = ""
+
+            [[agent]]
+            id = "one"
+            name = "One"
+            path = "%s"
+            harness = "claude"
+            """
+            % self.workdir
+        )
+        before = self.reg.read_text()
+        self.assertEqual(before.count("#"), 3)
+
+        agents = config.load_agents()
+        agents[0]["group"] = "changed"
+        config.save_agents(agents)
+
+        after = self.reg.read_text()
+        self.assertIn("this line explains a trap and must survive", after)
+        self.assertIn("atlas is the default root", after)
+        self.assertIn("why the default account is what it is", after)
+        self.assertEqual(config.get_setting("default_account"), "atlas")
+        self.assertEqual(config.load_agents()[0]["group"], "changed")
+
+
 class LoginResolution(_TempRegistry):
     """A login is selected by category; an unknown `account` name is not a login."""
 

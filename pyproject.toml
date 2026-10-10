@@ -23,6 +23,7 @@ dependencies = [
     "questionary>=2.0",
     "click>=8.1",
     "tomli-w>=1.0",
+    "tomlkit>=0.12",   # comment-preserving rewrite of agents.toml
 ]
 
 [project.optional-dependencies]
