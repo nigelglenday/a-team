@@ -129,7 +129,12 @@ if [ -z "$SSH_T" ] || [ "${HOST:-local}" = "local" ]; then
   else
     echo "starting $NAME locally in $DIR"
   fi
-  cd "$DIR" && exec "$HARNESS" ${RC:+$RC}
+  # Not exec: a crash that skips the harness's own cleanup leaves the terminal
+  # in mouse mode, and the restore below has to still be here to run.
+  cd "$DIR" || exit 1
+  "$HARNESS" ${RC:+$RC}; rc=$?
+  [ -t 1 ] && printf '\033[?1000l\033[?1002l\033[?1003l\033[?1006l\033[?1015l\033[?1004l\033[?2004l\033[?25h'
+  exit $rc
 fi
 
 # ---------------------------------------------------------------------------
@@ -264,6 +269,22 @@ PYEOF
     exit 0
   fi
 fi
+
+# Put the terminal back however the attach ends. Claude Code turns on mouse
+# reporting, bracketed paste and focus events, and turns them off on a CLEAN
+# exit. When the connection drops instead (wifi change, lid, roaming), nothing
+# turns them off: every scroll then arrives at the local zsh prompt as text,
+# "zsh: command not found: 42M64" by the screenful. Seen 2026-10-12. The
+# session on the server is unharmed; only this terminal is stuck.
+restore_term() {
+  [ -t 1 ] || return 0
+  # mouse modes (X10, button, any-motion, SGR, urxvt), focus events, bracketed
+  # paste, alternate screen, then show the cursor and pop the kitty keyboard mode.
+  printf '\033[?1000l\033[?1002l\033[?1003l\033[?1006l\033[?1015l\033[?1004l\033[?2004l\033[?1049l\033[?25h\033[<u'
+  stty sane 2>/dev/null
+}
+trap restore_term EXIT
+trap 'exit 130' INT TERM HUP
 
 # Attach. mosh survives flaky wifi and roaming; ssh is the fallback.
 exec_attach="tmux attach -t $(printf '%q' "$SESS")"
