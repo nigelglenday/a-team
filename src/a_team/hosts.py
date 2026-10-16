@@ -89,10 +89,40 @@ class Host:
         # here. Hand the remote shell "$HOME" and quote only the remainder.
         inner = f"cd {_remote_cd_target(path)} && {engine_cmd}"
         tmux = f"tmux new-session -A -s {shlex.quote(session)} {shlex.quote(inner)}"
-        return (
-            f"mosh {self.ssh_alias} -- {tmux} "
-            f"|| ssh -t {self.ssh_alias} {shlex.quote(tmux)}"
-        )
+        return reconnecting_attach(self.ssh_alias, tmux)
+
+
+# Every mode a remote Claude Code session turns on in this terminal: mouse
+# (X10, button, any-motion, SGR, urxvt), focus events, bracketed paste, the
+# alternate screen; then show the cursor and pop the kitty keyboard mode. Same
+# sequence as examples/atx's restore_term.
+RESTORE_TERM = (
+    r"printf '\033[?1000l\033[?1002l\033[?1003l\033[?1006l\033[?1015l"
+    r"\033[?1004l\033[?2004l\033[?1049l\033[?25h\033[<u'; stty sane 2>/dev/null"
+)
+
+
+def reconnecting_attach(alias: str, tmux: str) -> str:
+    """Attach to a remote tmux session and come back after a dropped link.
+
+    On 2026-10-16 Kratos-Builder's window fell back from mosh to ssh, the ssh
+    link dropped ("client_loop: send disconnect: Broken pipe"), and the window
+    became a plain local shell still in mouse mode: every scroll printed
+    "64;68;11M65;68;11M" at the prompt and the agent looked broken. The session
+    on the server was fine.
+
+    So: try mosh, then ssh. Exit 0 means a deliberate detach or the agent
+    quitting, and ends the loop. Anything else is a dropped link: put the
+    terminal back, say so, wait, and attach again. Ctrl-C stops it."""
+    one = (f"mosh {alias} -- {tmux} "
+           f"|| ssh -t {alias} {shlex.quote(tmux)}")
+    return (
+        f"while :; do {one} && break; "
+        f"{RESTORE_TERM}; "
+        "echo; echo 'a-team: connection lost; reconnecting in 3s (Ctrl-C to stop)'; "
+        "sleep 3; done; "
+        f"{RESTORE_TERM}"
+    )
 
 
 
