@@ -299,7 +299,8 @@ def attach_window(session: str, host: str = _hosts.DEFAULT_HOST,
     target = _hosts.get(host)
     tmux_cmd = f"{TMUX_BIN} new-session -A -s {shlex.quote(session)}"
     if target.is_remote:
-        command = f"MOSH_TITLE_NOPREFIX=1 mosh {target.ssh_alias} -- {tmux_cmd}"
+        command = "MOSH_TITLE_NOPREFIX=1; export MOSH_TITLE_NOPREFIX; " + \
+            _hosts.reconnecting_attach(target.ssh_alias, tmux_cmd)
     else:
         command = tmux_cmd
 
