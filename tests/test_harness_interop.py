@@ -672,3 +672,20 @@ class RemoteStatus(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RemoteWindowsReconnect(unittest.TestCase):
+    """A dropped link must not leave a remote window as a dead local shell.
+
+    2026-10-16: Kratos-Builder's window lost its ssh link and became a local
+    zsh still in mouse mode, printing scroll codes at the prompt."""
+
+    def test_launch_and_attach_loop_and_restore(self):
+        from a_team import hosts
+        cmd = hosts.reconnecting_attach("m3", "tmux new-session -A -s x")
+        self.assertTrue(cmd.startswith("while :; do mosh m3 -- "))
+        self.assertIn("&& break", cmd)
+        self.assertIn("\\033[?1006l", cmd)   # SGR mouse mode off after a drop
+        src = pathlib.Path(__file__).resolve().parents[1] / "src/a_team"
+        self.assertIn("reconnecting_attach", (src / "spawn.py").read_text())
+        self.assertIn("return reconnecting_attach", (src / "hosts.py").read_text())
