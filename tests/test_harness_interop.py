@@ -14,6 +14,7 @@ import tempfile
 import textwrap
 import pathlib
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from a_team import config, harness, spawn
@@ -492,8 +493,10 @@ class HostRouting(unittest.TestCase):
             hosts.normalize_key("definitely-not-configured")
 
     def test_local_launch_command_is_plain_cd(self):
+        """With local tmux turned off; the default (tmux) is LocalTmuxTest."""
         from a_team import hosts
-        cmd = hosts.LOCAL.launch_command("/tmp/proj", "claude", "myid")
+        with mock.patch.dict(os.environ, {"A_TEAM_LOCAL_TMUX": "0"}):
+            cmd = hosts.LOCAL.launch_command("/tmp/proj", "claude", "myid")
         self.assertEqual(cmd, "cd /tmp/proj && claude")
         self.assertNotIn("tmux", cmd)
 
@@ -689,3 +692,26 @@ class RemoteWindowsReconnect(unittest.TestCase):
         src = pathlib.Path(__file__).resolve().parents[1] / "src/a_team"
         self.assertIn("reconnecting_attach", (src / "spawn.py").read_text())
         self.assertIn("return reconnecting_attach", (src / "hosts.py").read_text())
+
+
+class LocalTmuxTest(unittest.TestCase):
+    """Local agents run inside a named tmux session by default (2026-11-02), so
+    any terminal can attach to them and the agent outlives its window."""
+
+    def test_local_runs_in_tmux_with_the_account_inside(self):
+        from a_team import hosts as H
+        with mock.patch.dict(os.environ, {"A_TEAM_LOCAL_TMUX": "1"}), \
+             mock.patch.object(H.shutil, "which", return_value="/opt/homebrew/bin/tmux"):
+            cmd = H.LOCAL.launch_command("~/x", "claude --continue", "m4-sidekick-1",
+                                         env="export CLAUDE_CONFIG_DIR=/p; ")
+        self.assertIn("/opt/homebrew/bin/tmux new-session -A -s m4-sidekick-1", cmd)
+        # the export must travel INSIDE the tmux command, not before it
+        inner = cmd.split("new-session -A -s m4-sidekick-1 ", 1)[1]
+        self.assertIn("export CLAUDE_CONFIG_DIR=/p", inner)
+
+    def test_opt_out_runs_in_the_window(self):
+        from a_team import hosts as H
+        with mock.patch.dict(os.environ, {"A_TEAM_LOCAL_TMUX": "0"}):
+            cmd = H.LOCAL.launch_command("~/x", "claude", "s")
+        self.assertNotIn("tmux", cmd)
+        self.assertTrue(cmd.startswith("cd "))
