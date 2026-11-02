@@ -6,6 +6,25 @@ This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0
 
 ## [Unreleased]
 
+### Added
+- **A choice of terminal.** `[settings] terminal = "ghostty" | "cmux"` (default `ghostty`, so nothing
+  changes until you opt in), `a-team config terminal`, and `--terminal NAME` on `open`, `layout`, `all`
+  and the `a-team <name>` shortcut. An unavailable terminal falls back to Ghostty with one line saying why.
+- **cmux backend.** One workspace per agent; an existing workspace of the same name is selected, not
+  duplicated. The agent's window group becomes a cmux workspace group (created idempotently) and an
+  optional per-agent `color` field colors the workspace. Reports "Access denied" with the fix
+  (`CMUX_SOCKET_PASSWORD`, or `[settings] cmux_password_env`).
+- **`terminals.py`**, a small backend layer: each terminal is one class (`name`, `available()`, `open()`).
+  Ghostty's AppleScript and clipboard paste moved there unchanged.
+- **`a-team sync` writes the Claude config dir** as a sixth column of the generated boot list, so a host
+  that restores its own sessions puts each one back on the right login. `-` means the default root.
+  Readers should treat a missing or `-` column as the default. Note the config dir is also where
+  `projects/` history lives, so moving an agent between logins loses its `--continue` history unless the
+  matching `projects/<slug>/` is copied across.
+
+### Fixed
+- A tmux session name starting with `=` is now quoted, so zsh does not expand it into a command path.
+
 ### Changed
 - **An unknown `account` name is no longer treated as a login.** The per-agent `account` field selects a
   Claude login only if it names a key in `[accounts]`. Deployments also use that field for other
@@ -17,13 +36,6 @@ This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0
   `personal` as before. It has to be: the built-in fallback is *named* `personal`, so the moment
   `personal` maps to a non-default config dir, every uncategorised agent silently follows it, which is
   the opposite of a default.
-
-### Added
-- **`a-team sync` writes the Claude config dir** as a sixth column of the generated boot list, so a host
-  that restores its own sessions puts each one back on the right login. `-` means the default root.
-  Readers should treat a missing or `-` column as the default. Note the config dir is also where
-  `projects/` history lives, so moving an agent between logins loses its `--continue` history unless the
-  matching `projects/<slug>/` is copied across.
 
 ## [0.6.0] - 2026-09-22
 

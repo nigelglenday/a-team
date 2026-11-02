@@ -25,6 +25,8 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 
+from .terminals import zsh_safe_quote as _zq
+
 DEFAULT_HOST = "local"
 
 
@@ -98,12 +100,12 @@ class Host:
             if not tmux:
                 return run
             inner = f"{env}{run}"
-            return f"{tmux} new-session -A -s {shlex.quote(session)} {shlex.quote(inner)}; {RESTORE_TERM}"
+            return f"{tmux} new-session -A -s {_zq(session)} {shlex.quote(inner)}; {RESTORE_TERM}"
         # A remote ~ must expand on the REMOTE machine, whose home is a
         # different path (nigelglenday vs moonpie), so it must NOT be expanded
         # here. Hand the remote shell "$HOME" and quote only the remainder.
         inner = f"cd {_remote_cd_target(path)} && {engine_cmd}"
-        tmux = f"tmux new-session -A -s {shlex.quote(session)} {shlex.quote(inner)}"
+        tmux = f"tmux new-session -A -s {_zq(session)} {shlex.quote(inner)}"
         return reconnecting_attach(self.ssh_alias, tmux)
 
 

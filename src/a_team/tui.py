@@ -339,6 +339,8 @@ class ATeamTUI(App):
                 session_mode=mode,
                 harness=chosen,
                 config_dir=config.resolve_config_dir(agent, harness=chosen),
+                group=config.window_for(agent.get("group")),
+                color=agent.get("color"),
             ),
             thread=True,
         )

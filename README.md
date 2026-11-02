@@ -247,6 +247,31 @@ Ghostty has no `+new-window` CLI on macOS, so `a-team` opens a window in the run
 
 **Local agents run inside tmux too**, when tmux is installed: the window runs `tmux new-session -A -s <agent-id>`, the same attach-or-create that remote agents use. The agent then outlives its window, and any terminal can view it with `tmux attach -t <agent-id>`, so it can move between Ghostty, cmux or another tab without restarting. The account export goes inside the tmux command, because a new tmux session takes its environment from the tmux server, not from the window that started it. Set `A_TEAM_LOCAL_TMUX=0` to run local agents straight in the window as before.
 
+## Terminals
+
+Every agent runs in a named tmux session, so the terminal only shows it, and you can choose which one. Two are built in: **Ghostty** (the default, described above) and **cmux**.
+
+```toml
+[settings]
+terminal = "cmux"          # or "ghostty" (the default)
+```
+
+Or `a-team config terminal cmux`. `--terminal NAME` on `a-team open`, `a-team layout`, `a-team all` and `a-team <name>` overrides the setting once. If the chosen terminal is unavailable, `a-team` prints one line saying why and opens Ghostty instead.
+
+**cmux** opens one workspace per agent, named after it, through the `cmux` CLI (on PATH or `/opt/homebrew/bin/cmux`). Opening an agent that already has a workspace of that name selects it rather than creating a duplicate. The agent's window group (the one `a-team layout` uses) becomes a cmux workspace group, and an optional `color` field on the agent colors its workspace:
+
+```toml
+[[agent]]
+name = "Webapp"
+path = "/Users/you/code/webapp"
+group = "deal"
+color = "Teal"             # a cmux color name (Red, Teal, Navy, ...) or "#hex"
+```
+
+cmux only takes commands from processes it started. To drive it from another terminal, set a socket password in cmux Settings and `export CMUX_SOCKET_PASSWORD=...`, or run `a-team` from inside cmux. To read the password from a variable of your own, set `cmux_password_env = "VARNAME"` under `[settings]`.
+
+**Adding a terminal** is one class in `src/a_team/terminals.py` with a `name`, `available()` returning `(ok, reason)`, and `open(title, command, *, group, color, tab)`, plus one line in `TERMINALS`. The module docstring sketches an iTerm2 backend.
+
 ## Docs
 
 - **[FAQ](docs/faq.md)** — how do I start a second session, why does my remote agent show `?`, I closed the window did I kill it, and the rest.
