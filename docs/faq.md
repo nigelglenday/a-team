@@ -73,9 +73,12 @@ on other machines (see below).
 
 ### I closed the window. Did I kill my agent?
 
-**A local agent: yes.** **A remote agent: no.** Remote agents run inside tmux on
-their host, so the window is only a viewport. Closing it, losing wifi, or putting
-your laptop to sleep leaves the session running. Reattach with `atx <agent>`.
+**No, as long as tmux is installed.** Every agent runs inside a named tmux
+session: remote agents on their host, local agents on this Mac. The window is only
+a viewport. Closing it, losing wifi, or putting your laptop to sleep leaves the
+session running. Reattach with `atx <agent>`. Without tmux, or with
+`A_TEAM_LOCAL_TMUX=0`, a local agent runs in the window itself and closing the
+window ends it.
 
 ### How do I detach without killing it?
 

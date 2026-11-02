@@ -22,7 +22,7 @@ from pathlib import Path
 import click
 import questionary
 
-from . import config, spawn, terminals, ui
+from . import config, desks, notify, spawn, terminals, ui
 
 
 def _terminal_option(f):
@@ -904,10 +904,33 @@ def layout_cmd(dry_run: bool, terminal: str | None) -> None:
     Nothing needs re-tagging: the tree stays put and only the layout moves.
     """
     gs = config.groups()
-    if not gs:
+    try:
+        desk_list = desks.load()
+    except ValueError as e:
+        ui.error(f"[[desk]] in agents.toml: {e}")
+        sys.exit(1)
+    wanted = (terminal or config.get_setting("terminal") or terminals.DEFAULT_TERMINAL).lower()
+    if wanted != "cmux":
+        desk_list = []  # desks are a cmux feature; other terminals ignore them
+    if desk_list:
+        lost = desks.missing(desk_list, config.active_agents())
+        if lost:
+            ui.error("desks name agents not in the registry: " + ", ".join(lost))
+            sys.exit(1)
+        # Agents shown on a desk are not opened again on their own.
+        gs = {name: [a for a in agents if not desks.desk_for(a, desk_list)]
+              for name, agents in gs.items()}
+        gs = {name: agents for name, agents in gs.items() if agents}
+    if not gs and not desk_list:
         ui.error("no groups defined. Set one with `a-team set <agent> --group deal`.")
         sys.exit(1)
 
+    if desk_list:
+        click.echo("Desks:")
+        for line in desks.plan_lines(desk_list):
+            click.echo(line)
+        if gs:
+            click.echo("One workspace each:")
     for name, agents in gs.items():
         click.echo(f"  {name}: " + ", ".join(a["name"] for a in agents))
     if dry_run:
@@ -915,6 +938,16 @@ def layout_cmd(dry_run: bool, terminal: str | None) -> None:
 
     term = terminals.resolve(terminal)
     failed: list[str] = []
+    if desk_list and isinstance(term, terminals.Cmux):
+        try:
+            desks.build(term, desk_list, config.active_agents())
+        except RuntimeError as e:
+            ui.error(str(e))
+            sys.exit(1)
+        ui.info(f"Built {len(desk_list)} desk(s).")
+    elif desk_list:
+        # cmux was unavailable and resolve() fell back: open every agent as before.
+        gs = config.groups()
     for gi, (name, agents) in enumerate(gs.items()):
         if gi:
             time.sleep(2.0)  # a beat between windows
@@ -940,9 +973,80 @@ def layout_cmd(dry_run: bool, terminal: str | None) -> None:
                 failed.append(agent["name"])
             if opened < len(agents):
                 time.sleep(1.5)
-    ui.info(f"Opened {len(gs)} window(s).")
+    if gs:
+        ui.info(f"Opened {len(gs)} window(s).")
     if failed:
         ui.warn("could not open: " + ", ".join(failed))
+
+
+@cli.command("signal")
+@click.argument("event", type=click.Choice(["done", "needs-input", "install"]))
+@click.option("--text", default=None, help="Message for needs-input (default: the hook payload's message).")
+@click.option("--kind", default=None, help="Notification type (default: the hook payload's notification_type).")
+@click.option("--agent", "agent_ref", default=None,
+              help="The agent, by id, tmux session or name (default: worked out from $TMUX or the folder).")
+@click.option("--write", is_flag=True, help="install: merge the hooks into ~/.claude/settings.json.")
+@click.option("--via", default=None, metavar="SSH_TARGET",
+              help="install: hooks for a remote host that send the signal over SSH to this machine.")
+def signal_cmd(event: str, text: str | None, kind: str | None, agent_ref: str | None,
+               write: bool, via: str | None) -> None:
+    """Mark an agent's cmux workspace: done, or needs your input.
+
+    Runs as a Claude Code Stop and Notification hook. `a-team signal install`
+    prints the hooks; `--write` merges them into ~/.claude/settings.json after
+    a backup. Off switch: create ~/.config/a-team/signal-off.
+    """
+    if event == "install":
+        _signal_install(write, via)
+        return
+    payload = notify.read_payload(sys.stdin) if text is None or kind is None else {}
+    if text is None:
+        text = str(payload.get("message") or "")
+    if kind is None:
+        kind = str(payload.get("notification_type") or "")
+    try:
+        ok, outcome = notify.send(event, text=text, kind=kind, ref=agent_ref)
+    except Exception as e:  # a hook must never break the turn it follows
+        ok, outcome = False, f"error: {e}"
+    click.echo(f"a-team signal: {outcome}")
+
+
+def _signal_install(write: bool, via: str | None) -> None:
+    import shlex
+    import shutil
+
+    if via:
+        # Runs on the remote host: forward the hook payload over SSH to the
+        # machine where cmux runs. Outside tmux there is no agent to name.
+        command = (f"[ -n \"$TMUX\" ] && ssh -o ConnectTimeout=5 {shlex.quote(via)} "
+                   "a-team signal --agent \"$(tmux display-message -p -t \"$TMUX_PANE\" '#S')\"")
+        hooks = notify.hook_config(command)
+        for entries in hooks["hooks"].values():
+            for h in entries[0]["hooks"]:
+                h["command"] += " || true"
+    else:
+        exe = shutil.which("a-team") or "a-team"
+        hooks = notify.hook_config(f"{shlex.quote(exe)} signal")
+    if not write:
+        click.echo(json.dumps(hooks, indent=2))
+        return
+    path = Path.home() / ".claude" / "settings.json"
+    try:
+        current = json.loads(path.read_text()) if path.exists() else {}
+    except ValueError as e:
+        ui.error(f"{path} is not valid JSON ({e}); fix it or merge the hooks by hand.")
+        sys.exit(1)
+    merged, changed = notify.merge_hooks(current, hooks)
+    if not changed:
+        ui.info(f"{path} already has these hooks.")
+        return
+    if path.exists():
+        bak = path.with_name(path.name + f".bak-{time.strftime('%Y%m%d-%H%M%S')}")
+        shutil.copy2(path, bak)
+        ui.info(f"Backed up {path} to {bak}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(merged, indent=2) + "\n")
+    ui.info(f"Added the Stop and Notification hooks to {path}")
 
 
 @cli.command("set")

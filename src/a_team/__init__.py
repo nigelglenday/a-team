@@ -1,3 +1,3 @@
 """a-team — parallel Claude Code session manager for Ghostty."""
 
-__version__ = "0.4.2"
+__version__ = "0.7.0"

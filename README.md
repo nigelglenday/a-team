@@ -1,6 +1,6 @@
 # a-team
 
-![Version](https://img.shields.io/badge/version-0.6.0-orange) ![License](https://img.shields.io/badge/license-MIT-yellow) ![Python](https://img.shields.io/badge/python-3.11%2B-blue) ![Platform](https://img.shields.io/badge/platform-macOS-black) ![Ghostty](https://img.shields.io/badge/terminal-Ghostty-orange) ![Termpaper](https://img.shields.io/badge/set-termpaper-cyan)
+![Version](https://img.shields.io/badge/version-0.7.0-orange) ![License](https://img.shields.io/badge/license-MIT-yellow) ![Python](https://img.shields.io/badge/python-3.11%2B-blue) ![Platform](https://img.shields.io/badge/platform-macOS-black) ![Ghostty](https://img.shields.io/badge/terminal-Ghostty-orange) ![cmux](https://img.shields.io/badge/terminal-cmux-purple) ![Termpaper](https://img.shields.io/badge/set-termpaper-cyan)
 
 > *I love it when a plan comes together.*
 
@@ -25,7 +25,7 @@ An **agent** is a named folder. The registry remembers its name, where it lives,
 - **Claude Code or Codex**, chosen per agent.
 - **Back after a reboot.** `a-team all` restores every persistent agent.
 
-Requires macOS, Claude Code, and Python 3.11+. Ghostty is needed for the picker and TUI, which open windows for you; `atx` works in any terminal.
+Requires macOS, Claude Code, and Python 3.11+. The picker, the TUI and `a-team layout` open windows for you in Ghostty (the default) or cmux, so they need one of the two; tmux is recommended so agents outlive their windows. `atx` works in any terminal.
 
 **New here?** The [FAQ](docs/faq.md) answers the common questions directly.
 
@@ -63,8 +63,10 @@ a-team open <name>              window on an agent: attach if up, else start
 a-team archive <name>           out of the picker, kept in the registry
 a-team grants --check-files     audit need-to-know wiring, both halves
 a-team sync                     write each host's boot list from the registry
-a-team layout                   rebuild the screen: every group, as tabs
+a-team layout                   rebuild the screen: every group, as tabs (desks in cmux)
 a-team groups                   the group tree, and which window each lands in
+a-team signal done|needs-input  mark the agent's cmux workspace (a Claude Code hook)
+a-team signal install           print the hooks; --write adds them to settings.json
 
 a-team resolve <name> --json    where an agent lives (id, path, host, ssh, harness)
 a-team config show              current settings
@@ -268,7 +270,42 @@ group = "deal"
 color = "Teal"             # a cmux color name (Red, Teal, Navy, ...) or "#hex"
 ```
 
-cmux only takes commands from processes it started. To drive it from another terminal, set a socket password in cmux Settings and `export CMUX_SOCKET_PASSWORD=...`, or run `a-team` from inside cmux. To read the password from a variable of your own, set `cmux_password_env = "VARNAME"` under `[settings]`.
+cmux only takes commands from processes it started. To drive it from another terminal, set a socket password in cmux Settings and `export CMUX_SOCKET_PASSWORD=...`, or run `a-team` from inside cmux. To read the password from a variable of your own, set `cmux_password_env = "VARNAME"` under `[settings]`. With no variable set, a-team reads `~/.config/cmux/socket-password` if it exists.
+
+## The cmux workflow
+
+cmux shows many agents at once and flags the ones waiting for you. Three pieces make it work.
+
+**Every agent runs in tmux, so a pane is only a view.** Closing a cmux workspace, rebuilding the layout or restarting cmux never touches an agent; the pane just attaches again.
+
+**Desks.** A desk (a-team's own term) is one cmux workspace showing several agents side by side: the first on the left, the rest stacked on the right. Declare desks in `agents.toml`:
+
+```toml
+[[desk]]
+name = "Client-A"
+group = "Clients"                 # cmux workspace group (optional)
+agents = ["Client-A Associate", "Researcher", "Builder"]
+color = "Blue"                    # optional
+pin = true                        # optional
+
+[[desk]]
+name = "Ops"
+group = "Back office"
+agents = ["Ops"]
+```
+
+`a-team layout --terminal cmux` (or plain `a-team layout` with `terminal = "cmux"`) closes the workspaces named after each desk or its agents, then builds every desk in file order. Agents not on a desk still get one workspace each, in their window group. `--dry-run` prints the plan and opens nothing. Every agent a desk names must be in the registry, or `layout` stops and lists the missing names. With no `[[desk]]` tables, `layout` works exactly as before: one workspace per agent. Ghostty ignores desks.
+
+**Notifications.** `a-team signal` runs as a Claude Code hook. When an agent finishes a turn it marks the agent's workspace (or its desk) "done at 4:32 PM"; when the agent needs you it marks it "needs you: <message>". cmux's jump-to-unread then takes you to the next agent waiting. To set it up:
+
+1. In cmux, open Settings > Automation and set **Socket Control Mode** to **Password**. Save the password in `~/.config/cmux/socket-password` (`chmod 600` it), or export it as `CMUX_SOCKET_PASSWORD`.
+2. Run `a-team signal install` to see the hooks, then `a-team signal install --write` to add them to `~/.claude/settings.json`. It backs the file up first and leaves your other hooks alone.
+
+`a-team signal` finds the agent from its tmux session name, else from the folder it runs in; `--agent NAME` names it outright. It sends at most one "done" per agent a minute, and skips Claude Code's idle reminder within ten minutes of a "done". Create `~/.config/a-team/signal-off` to turn it off. Each signal is logged to `~/.local/state/a-team/signal.log`.
+
+**Remote agents.** The hook runs on the agent's host, where cmux is not. Have that host send the signal back over SSH: on the remote host, run `a-team signal install --via <laptop>` (with a-team installed there), or add the printed hooks by hand. Each hook runs `ssh <laptop> a-team signal --agent <tmux session> done` and passes the hook's input along. The laptop needs Remote Login on, a key the server can use, and `a-team` on the PATH that SSH commands see (use the full path, such as `~/.local/bin/a-team`, if not). No daemon is involved.
+
+**Security.** Password mode lets any process that knows the password drive cmux, not only processes cmux started. Keep the password file readable by you alone (`chmod 600`); a-team passes the password to cmux in its environment and never prints or logs it.
 
 **Adding a terminal** is one class in `src/a_team/terminals.py` with a `name`, `available()` returning `(ok, reason)`, and `open(title, command, *, group, color, tab)`, plus one line in `TERMINALS`. The module docstring sketches an iTerm2 backend.
 

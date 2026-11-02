@@ -195,10 +195,12 @@ class Ghostty(Terminal):
 
 CMUX_DEFAULT_BIN = "/opt/homebrew/bin/cmux"
 CMUX_PASSWORD_VAR = "CMUX_SOCKET_PASSWORD"
+# Read when no variable carries the password. Keep it chmod 600.
+CMUX_PASSWORD_FILE = os.path.expanduser("~/.config/cmux/socket-password")
 
 _ACCESS_FIX = (
-    "set a socket password in cmux Settings and export CMUX_SOCKET_PASSWORD, "
-    "or run a-team from inside cmux"
+    "set a socket password in cmux Settings and export CMUX_SOCKET_PASSWORD "
+    "(or save it in ~/.config/cmux/socket-password), or run a-team from inside cmux"
 )
 
 
@@ -237,20 +239,30 @@ class Cmux(Terminal):
 
     cmux accepts socket commands only from processes it started, unless a
     password is supplied. The password is read from CMUX_SOCKET_PASSWORD (or
-    the variable named by `[settings] cmux_password_env`) and passed to cmux
-    in its environment, never on the command line."""
+    the variable named by `[settings] cmux_password_env`), else from
+    ~/.config/cmux/socket-password, and passed to cmux in its environment,
+    never on the command line."""
 
     name = "cmux"
 
     def __init__(self, binary: str | None = None, password_env: str | None = None):
         self.binary = binary or shutil.which("cmux") or CMUX_DEFAULT_BIN
         self.password_env = password_env
+        self.groups: dict[str, str] = {}  # group name -> ref, made this run
 
     def _env(self) -> dict:
         env = dict(os.environ)
         env["CMUX_QUIET"] = "1"
         if self.password_env and self.password_env != CMUX_PASSWORD_VAR:
             pw = os.environ.get(self.password_env)
+            if pw:
+                env[CMUX_PASSWORD_VAR] = pw
+        if not env.get(CMUX_PASSWORD_VAR):
+            try:
+                with open(CMUX_PASSWORD_FILE) as f:
+                    pw = f.read().strip()
+            except OSError:
+                pw = ""
             if pw:
                 env[CMUX_PASSWORD_VAR] = pw
         return env
@@ -280,13 +292,25 @@ class Cmux(Terminal):
         return True, ""
 
     def _group_ref(self, group: str) -> str:
+        if group in self.groups:
+            return self.groups[group]
         out = self._ok(self._run("workspace-group", "create", "--name", group,
                                  "--idempotency-key", f"a-team-{_slug(group)}"),
                        "workspace-group create")
         m = re.search(r"workspace_group:\d+", out)
         if not m:
             raise RuntimeError(f"cmux workspace-group create gave no ref: {out.strip()}")
+        self.groups[group] = m.group(0)
         return m.group(0)
+
+    def workspaces(self) -> dict[str, str]:
+        """{workspace name: "workspace:<n>"} for every open workspace."""
+        return parse_workspace_list(self._ok(self._run("workspace", "list"), "workspace list"))
+
+    def notify(self, ref: str, title: str, body: str) -> None:
+        """Mark a workspace in the sidebar (no desktop banner)."""
+        self._ok(self._run("notify", "--workspace", ref, "--title", title, "--body", body,
+                           "--desktop", "false"), "notify")
 
     def open(self, title: str, command: str, *, group: str | None = None,
              color: str | None = None, tab: bool = False) -> None:
