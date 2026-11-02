@@ -245,6 +245,8 @@ An agent's account resolves as: an explicit `account = "work"` on the agent → 
 
 Ghostty has no `+new-window` CLI on macOS, so `a-team` opens a window in the running Ghostty instance via the File → New Window menu (AppleScript), then delivers the launch command by **clipboard paste** rather than keystroking it — System Events drops characters on long strings, which mangles the command. The pasted command re-emits the title via OSC-0 on a loop, exports `CLAUDE_CONFIG_DIR` for the agent's account, `cd`s into the folder, and runs claude (`--continue`, `--resume`, or fresh, per your choice).
 
+**Local agents run inside tmux too**, when tmux is installed: the window runs `tmux new-session -A -s <agent-id>`, the same attach-or-create that remote agents use. The agent then outlives its window, and any terminal can view it with `tmux attach -t <agent-id>`, so it can move between Ghostty, cmux or another tab without restarting. The account export goes inside the tmux command, because a new tmux session takes its environment from the tmux server, not from the window that started it. Set `A_TEAM_LOCAL_TMUX=0` to run local agents straight in the window as before.
+
 ## Docs
 
 - **[FAQ](docs/faq.md)** — how do I start a second session, why does my remote agent show `?`, I closed the window did I kill it, and the rest.

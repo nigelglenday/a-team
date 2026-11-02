@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import os
 import shlex
+import shutil
 import subprocess
 from dataclasses import dataclass
 
@@ -74,22 +75,44 @@ class Host:
         except (subprocess.SubprocessError, OSError):
             return False
 
-    def launch_command(self, path: str, engine_cmd: str, session: str) -> str:
-        """The command the Ghostty window runs.
+    def launch_command(self, path: str, engine_cmd: str, session: str, env: str = "") -> str:
+        """The command the terminal window runs.
 
-        local: cd into the folder and start the engine.
+        local: attach-or-create a named tmux session on this machine, the same
+        way remote agents run, so the agent outlives its window and any terminal
+        (Ghostty, cmux, another tab) can attach to it. Without tmux, or with
+        A_TEAM_LOCAL_TMUX=0, it runs the engine in the window itself.
         remote: attach-or-create a named tmux session on that host, so the agent
-        survives this window closing, and attach over mosh (ssh fallback)."""
+        survives this window closing, and attach over mosh (ssh fallback).
+
+        `env` is the account export (CLAUDE_CONFIG_DIR). It must go INSIDE the
+        tmux command: a new tmux session takes its environment from the tmux
+        server, not from the window that asked for it, so an export made in the
+        window would be silently dropped and the agent would start on the wrong
+        login."""
         if not self.is_remote:
             # Expand ~ HERE: shlex.quote would make it a literal '~/...' and
             # the cd would fail. Safe locally, because this is our own home.
-            return f"cd {shlex.quote(os.path.expanduser(path))} && {engine_cmd}"
+            run = f"cd {shlex.quote(os.path.expanduser(path))} && {engine_cmd}"
+            tmux = local_tmux()
+            if not tmux:
+                return run
+            inner = f"{env}{run}"
+            return f"{tmux} new-session -A -s {shlex.quote(session)} {shlex.quote(inner)}; {RESTORE_TERM}"
         # A remote ~ must expand on the REMOTE machine, whose home is a
         # different path (nigelglenday vs moonpie), so it must NOT be expanded
         # here. Hand the remote shell "$HOME" and quote only the remainder.
         inner = f"cd {_remote_cd_target(path)} && {engine_cmd}"
         tmux = f"tmux new-session -A -s {shlex.quote(session)} {shlex.quote(inner)}"
         return reconnecting_attach(self.ssh_alias, tmux)
+
+
+def local_tmux() -> str | None:
+    """Path to tmux when local agents should run inside it (the default), else None."""
+    if os.environ.get("A_TEAM_LOCAL_TMUX", "1") == "0":
+        return None
+    return shutil.which("tmux") or next(
+        (p for p in ("/opt/homebrew/bin/tmux", "/usr/local/bin/tmux") if os.path.exists(p)), None)
 
 
 # Every mode a remote Claude Code session turns on in this terminal: mouse

@@ -149,7 +149,7 @@ def _build_command(
     # Account config is a local-machine concept (CLAUDE_CONFIG_DIR). A remote
     # host runs under its OWN login, so we never export it across the SSH hop.
     env = harness.env_prefix(config_dir) if not h.is_remote else ""
-    body = h.launch_command(path, engine_cmd, session or "agent")
+    body = h.launch_command(path, engine_cmd, session or "agent", env=env)
     return (
         "{ "
         f"{env}"
