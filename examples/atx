@@ -114,6 +114,14 @@ if [ -z "$SSH_T" ] || [ "${HOST:-local}" = "local" ]; then
   DIR="${PATH_/#\~/$HOME}"
   [ -d "$DIR" ] || { echo "folder missing on this machine: $DIR" >&2; exit 1; }
 
+  # Local agents now run inside tmux too (a-team opens them with `tmux new-session -A -s
+  # <id>`), so a running one is joined, not started a second time. Without this, `atx` in a
+  # new tab started a second copy of an agent that was already running.
+  LTMUX=$(command -v tmux || true)
+  if [ -z "$LABEL" ] && [ -n "$LTMUX" ] && "$LTMUX" has-session -t "=$ID" 2>/dev/null; then
+    exec "$LTMUX" attach -t "=$ID"
+  fi
+
   # A label names the session even locally. Locally there is no tmux to attach
   # to (you are at the machine; each window holds one session), so the label's
   # job is identification: it titles the session and, for Claude, turns on
