@@ -6,7 +6,20 @@ This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-02
+
 ### Added
+- **Desks.** A `[[desk]]` table in `agents.toml` puts several agents side by side in one cmux workspace,
+  with an optional workspace group, color and pin. `a-team layout` builds them when the terminal is cmux;
+  `--dry-run` prints the plan. Agents not on a desk still get a workspace each, and with no desks the
+  layout is unchanged. A desk naming an agent not in the registry stops `layout` with the missing names.
+- **`a-team signal done|needs-input`**, a Claude Code Stop and Notification hook that marks the agent's
+  cmux workspace (or its desk): "done at 4:32 PM" or "needs you: <message>". At most one "done" per agent
+  a minute; idle reminders within ten minutes of a "done" are skipped. Off switch:
+  `~/.config/a-team/signal-off`. `--agent` names the agent, so a remote host can send the signal over SSH.
+- **`a-team signal install`** prints the hooks; `--write` merges them into `~/.claude/settings.json` after
+  a timestamped backup; `--via HOST` prints hooks for a remote host that forward over SSH.
+- The cmux password is also read from `~/.config/cmux/socket-password` when no variable carries it.
 - **A choice of terminal.** `[settings] terminal = "ghostty" | "cmux"` (default `ghostty`, so nothing
   changes until you opt in), `a-team config terminal`, and `--terminal NAME` on `open`, `layout`, `all`
   and the `a-team <name>` shortcut. An unavailable terminal falls back to Ghostty with one line saying why.
