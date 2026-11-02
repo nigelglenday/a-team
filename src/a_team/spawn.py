@@ -1,25 +1,10 @@
-"""Spawn Ghostty windows running Claude Code.
+"""Open terminal windows running agents.
 
-Approach: open a new window in the *existing* Ghostty instance via the
-File > New Window menu (AppleScript / System Events), then deliver the
-launch command by **clipboard paste** (Cmd-V), not by keystroking it.
-
-Why not keystroke the command (the old approach): System Events
-`keystroke` types faster than a GPU terminal absorbs on long strings and
-silently drops characters — notably spaces — mangling the command into
-something bash can't parse (`trap"kill$TPID..."`, `cd'...'&&claude`). It's
-also racy. Pasting is atomic: the whole command lands intact regardless
-of length.
-
-Why not `open -na Ghostty.app --args -e <cmd>` (native launch): it works
-and needs no accessibility, but on macOS each call spawns a *separate*
-Ghostty instance (no single-instance option exists), which fragments a
-session manager that opens many windows. The menu approach keeps every
-agent window in one instance.
-
-The command itself is set on the clipboard with `pbcopy` (via stdin), so
-it never passes through AppleScript string escaping — no quoting layers
-to get wrong. The clipboard is saved and restored around the paste.
+This module builds the launch command (the harness, the account export, the
+tmux attach-or-create, the title loop) and hands it to a terminal backend from
+terminals.py, which decides how it reaches the screen: a Ghostty window by
+default, or a cmux workspace. See terminals.py for why Ghostty is driven by menu
+clicks and clipboard paste.
 
 Title persistence: claude emits its own OSC-0 title sequences, which
 would clobber a one-time printf. A backgrounded loop re-emits the agent
@@ -33,79 +18,7 @@ import time
 
 from . import harness as _harness
 from . import hosts as _hosts
-
-
-_APPLESCRIPT = r'''
-tell application "Ghostty" to activate
-tell application "System Events"
-    tell process "Ghostty"
-        set n0 to count of windows
-        click menu item "New Window" of menu "File" of menu bar 1
-        -- Wait for the new window to actually appear (up to ~4s) rather than a
-        -- blind delay. Window-open latency varies with system load and OS/Ghostty
-        -- version; a too-short fixed delay pastes into a window that isn't ready
-        -- yet, so nothing runs (the failure this fixes).
-        repeat 40 times
-            if (count of windows) > n0 then exit repeat
-            delay 0.1
-        end repeat
-    end tell
-end tell
-delay 0.4
-tell application "System Events"
-    -- Clear anything the restored shell may have buffered at the prompt, then
-    -- paste the launch command (atomic — no dropped chars) and submit it.
-    keystroke "u" using control down
-    delay 0.1
-    keystroke "v" using command down
-    delay 0.3
-    key code 36
-end tell
-'''
-
-
-_APPLESCRIPT_TAB = r"""
-tell application "Ghostty" to activate
-tell application "System Events"
-    tell process "Ghostty"
-        -- A tab needs a window to live in. With none open, "New Tab" is either
-        -- disabled or makes a window anyway depending on version, so be explicit.
-        if (count of windows) is 0 then
-            click menu item "New Window" of menu "File" of menu bar 1
-            repeat 40 times
-                if (count of windows) > 0 then exit repeat
-                delay 0.1
-            end repeat
-        else
-            set t0 to 0
-            try
-                set t0 to count of (tabs of window 1)
-            end try
-            click menu item "New Tab" of menu "File" of menu bar 1
-            -- Wait for the tab to exist rather than guessing at a delay. Some
-            -- Ghostty builds do not expose `tabs` to System Events at all; fall
-            -- back to a bounded wait rather than failing the open.
-            repeat 40 times
-                try
-                    if (count of (tabs of window 1)) > t0 then exit repeat
-                on error
-                    delay 0.4
-                    exit repeat
-                end try
-                delay 0.1
-            end repeat
-        end if
-    end tell
-end tell
-delay 0.4
-tell application "System Events"
-    keystroke "u" using control down
-    delay 0.1
-    keystroke "v" using command down
-    delay 0.3
-    key code 36
-end tell
-"""
+from . import terminals as _terminals
 
 
 def _validate(name: str, path: str) -> None:
@@ -171,16 +84,22 @@ def open_agent(
     harness: str = _harness.DEFAULT_HARNESS,
     host: str = _hosts.DEFAULT_HOST,
     session: str | None = None,
+    group: str | None = None,
+    color: str | None = None,
+    tab: bool = False,
+    terminal: "_terminals.Terminal | None" = None,
 ) -> None:
-    """Open a new Ghostty window for the agent under the chosen harness.
+    """Open a new terminal window for the agent under the chosen harness.
 
-    Opens a window in the running Ghostty instance, sets the title to
+    Opens a window in the chosen terminal (`terminal`, else the one resolved
+    from `[settings] terminal`, default Ghostty), sets the title to
     `name` (kept set via a re-emit loop), cd's into `path`, and runs the
     harness. `session_mode` selects how it starts:
       - "continue": resume the most-recent session in this dir (fresh fallback)
       - "new":      a fresh session
       - "resume":   the harness's own past-session picker (fresh fallback)
-    `topic` is an optional label appended to the window title. `config_dir`
+    `topic` is an optional label appended to the window title. `group` and
+    `color` are passed to the terminal (cmux uses them; Ghostty ignores them). `config_dir`
     selects the account config home for harnesses that support it (Claude:
     CLAUDE_CONFIG_DIR); None = default/personal. `harness` is "claude" | "codex".
 
@@ -212,22 +131,8 @@ def open_agent(
         display_name, path, h, session_mode, config_dir, host=target, session=session
     )
 
-    # Save the clipboard, set our command, paste it, restore. pbcopy via stdin
-    # means the command never hits AppleScript escaping.
-    try:
-        prev = subprocess.run(["pbpaste"], capture_output=True).stdout
-    except Exception:
-        prev = b""
-    subprocess.run(["pbcopy"], input=command.encode(), check=True)
-    try:
-        subprocess.run(["osascript", "-e", _APPLESCRIPT], check=True)
-    finally:
-        # Restore the user's clipboard (best-effort; the paste has already
-        # been consumed by the time osascript returns).
-        try:
-            subprocess.run(["pbcopy"], input=prev, check=False)
-        except Exception:
-            pass
+    term = terminal or _terminals.resolve()
+    term.open(display_name, command, group=group, color=color, tab=tab)
 
 
 TMUX_BIN = "/opt/homebrew/bin/tmux"
@@ -269,8 +174,13 @@ def tmux_sessions(host: str = _hosts.DEFAULT_HOST) -> list[str] | None:
 
 
 def attach_window(session: str, host: str = _hosts.DEFAULT_HOST,
-                  tab: bool = False) -> None:
-    """Open a Ghostty window attached to an existing session on `host`.
+                  tab: bool = False, *, title: str | None = None,
+                  group: str | None = None, color: str | None = None,
+                  terminal: "_terminals.Terminal | None" = None) -> None:
+    """Open a terminal window attached to an existing session on `host`.
+
+    `title` names the window where the terminal supports it (a cmux workspace
+    name); it defaults to the session name.
 
     Never `open -na Ghostty`: -n starts a separate copy of the application
     every time, and six accumulated that way in one evening. macOS offers no
@@ -297,33 +207,25 @@ def attach_window(session: str, host: str = _hosts.DEFAULT_HOST,
     always done.
     """
     target = _hosts.get(host)
-    tmux_cmd = f"{TMUX_BIN} new-session -A -s {shlex.quote(session)}"
+    tmux_cmd = f"{TMUX_BIN} new-session -A -s {_terminals.zsh_safe_quote(session)}"
     if target.is_remote:
         command = "MOSH_TITLE_NOPREFIX=1; export MOSH_TITLE_NOPREFIX; " + \
             _hosts.reconnecting_attach(target.ssh_alias, tmux_cmd)
     else:
         command = tmux_cmd
 
-    try:
-        prev = subprocess.run(["pbpaste"], capture_output=True).stdout
-    except Exception:
-        prev = b""
-    subprocess.run(["pbcopy"], input=command.encode(), check=True)
-    try:
-        subprocess.run(["osascript", "-e",
-                        _APPLESCRIPT_TAB if tab else _APPLESCRIPT], check=True)
-    finally:
-        try:
-            subprocess.run(["pbcopy"], input=prev, check=False)
-        except Exception:
-            pass
+    term = terminal or _terminals.resolve()
+    term.open(title or session, command, group=group, color=color, tab=tab)
 
 
-def open_all(agents: list[dict], delay_between: float = 1.0) -> None:
-    """Open Ghostty windows for every agent, respecting each agent's saved
+def open_all(agents: list[dict], delay_between: float = 1.0,
+             terminal: "_terminals.Terminal | None" = None) -> None:
+    """Open a window for every agent, respecting each agent's saved
     harness AND resolved account config (both previously dropped here), with a
     small delay so Ghostty settles between menu clicks."""
     from . import config  # local import avoids a module-load cycle
+
+    term = terminal or _terminals.resolve()
 
     for agent in config._normalized(agents):
         harness_key = agent.get("harness", _harness.DEFAULT_HARNESS)
@@ -334,5 +236,8 @@ def open_all(agents: list[dict], delay_between: float = 1.0) -> None:
             host=agent.get("host", _hosts.DEFAULT_HOST),
             session=agent.get("id"),
             config_dir=config.resolve_config_dir(agent, harness=harness_key),
+            group=config.window_for(agent.get("group")),
+            color=agent.get("color"),
+            terminal=term,
         )
         time.sleep(delay_between)

@@ -22,7 +22,18 @@ from pathlib import Path
 import click
 import questionary
 
-from . import config, spawn, ui
+from . import config, spawn, terminals, ui
+
+
+def _terminal_option(f):
+    """--terminal NAME: open windows in this terminal this once, overriding
+    `[settings] terminal`."""
+    return click.option(
+        "--terminal", "terminal", type=click.Choice(sorted(terminals.TERMINALS)),
+        default=None,
+        help="Open windows in this terminal this once (default: [settings] terminal, "
+             "else ghostty).",
+    )(f)
 
 
 def _clipboard_path() -> str | None:
@@ -52,6 +63,7 @@ def _open(
     session_mode: str = "continue",
     topic: str | None = None,
     override_harness: str | None = None,
+    terminal: "terminals.Terminal | None" = None,
 ) -> bool:
     """Launch an agent under its saved harness (or a one-time override),
     resolving the harness-appropriate account config. One place so every launch
@@ -69,6 +81,9 @@ def _open(
             host=host.key,
             session=agent.get("id"),
             config_dir=config.resolve_config_dir(agent, harness=hk),
+            group=config.window_for(agent.get("group")),
+            color=agent.get("color"),
+            terminal=terminal,
         )
         return True
     except RuntimeError as e:
@@ -96,7 +111,8 @@ class AteamGroup(click.Group):
             help="Open under this harness once (default: the agent's saved harness). "
             "Does not change the saved default.",
         )
-        def shortcut(harness: str | None):
+        @_terminal_option
+        def shortcut(harness: str | None, terminal: str | None):
             agent = config.find_agent(cmd_name)
             if not agent:
                 ui.error(f"agent not found: {cmd_name}")
@@ -104,7 +120,8 @@ class AteamGroup(click.Group):
                     "[soft]Run `a-team ls` to see registered agents.[/soft]"
                 )
                 sys.exit(1)
-            if not _open(agent, override_harness=harness):
+            if not _open(agent, override_harness=harness,
+                         terminal=terminals.resolve(terminal)):
                 sys.exit(1)
 
         return shortcut
@@ -239,8 +256,9 @@ def _push_tab_titles(host: str, agents: list[dict]) -> None:
 
 
 @cli.command("all")
+@_terminal_option
 @click.pass_context
-def all_cmd(ctx: click.Context) -> None:
+def all_cmd(ctx: click.Context, terminal: str | None) -> None:
     """Restore the agents marked boot (post-reboot)."""
     no_splash = ctx.obj.get("no_splash", False)
     # Archived agents are never restored, and booting is opt in: most of the
@@ -255,7 +273,7 @@ def all_cmd(ctx: click.Context) -> None:
         ui.print_splash(len(agents))
 
     ui.info(f"Restoring {len(boot)} agents…")
-    spawn.open_all(boot)
+    spawn.open_all(boot, terminal=terminals.resolve(terminal))
     ui.info("Done.")
 
 
@@ -691,6 +709,33 @@ def config_default_host(host_key: str | None, unset: bool) -> None:
     ui.info(f"Set default_host → {key}")
 
 
+@config_cmd.command("terminal")
+@click.argument("name", required=False, default=None)
+@click.option("--unset", is_flag=True, help="Clear the setting (back to ghostty).")
+def config_terminal(name: str | None, unset: bool) -> None:
+    """Set the terminal agents open in: ghostty (default) or cmux.
+
+    Stored as `terminal` under [settings]. `--terminal NAME` on a command
+    overrides it once. An unavailable terminal falls back to Ghostty.
+    """
+    if unset:
+        config.set_setting("terminal", None)
+        ui.info("Cleared terminal (agents open in ghostty).")
+        return
+    if not name:
+        print(config.get_setting("terminal") or terminals.DEFAULT_TERMINAL)
+        return
+    key = name.strip().lower()
+    if key not in terminals.TERMINALS:
+        ui.error(f"unknown terminal {name!r}. Known: {', '.join(terminals.TERMINALS)}")
+        sys.exit(1)
+    config.set_setting("terminal", key)
+    ui.info(f"Set terminal → {key}")
+    ok, why = terminals.make(key, config.load_settings()).available()
+    if not ok:
+        ui.warn(f"{key} is not usable right now ({why}); windows fall back to Ghostty until it is.")
+
+
 @cli.command("rm")
 @click.argument("name")
 def rm_cmd(name: str) -> None:
@@ -716,9 +761,10 @@ def rm_cmd(name: str) -> None:
               help="Open every active agent in this category (e.g. -c Atlas).")
 @click.option("--group", "-g", "group", default=None,
               help="Open a window group as tabs (e.g. -g deal). See `a-team layout`.")
+@_terminal_option
 def open_cmd(names: tuple[str, ...], force_new: bool, label: str | None,
              list_only: bool, as_tabs: bool | None, category: str | None,
-             group: str | None) -> None:
+             group: str | None, terminal: str | None) -> None:
     """Open a window on one or more agents: attach if running, else start.
 
     Attaching is the default because an agent on the server is already alive
@@ -777,18 +823,20 @@ def open_cmd(names: tuple[str, ...], force_new: bool, label: str | None,
         ui.error("--label and --new apply to a single agent; open them one at a time.")
         sys.exit(1)
 
+    term = None if list_only else terminals.resolve(terminal)
     for i, agent in enumerate(agents):
         # Default: the first opens a window, the rest become tabs in it. An
         # explicit --tab/--window wins for every one.
         tab = as_tabs if as_tabs is not None else (i > 0)
         _open_one(agent, force_new=force_new, label=label,
-                  list_only=list_only, tab=tab)
+                  list_only=list_only, tab=tab, terminal=term)
         if i + 1 < len(agents):
             time.sleep(1.5)  # let Ghostty settle between menu clicks
 
 
 def _open_one(agent: dict, *, force_new: bool, label: str | None,
-              list_only: bool, tab: bool) -> None:
+              list_only: bool, tab: bool,
+              terminal: "terminals.Terminal | None" = None) -> None:
 
     host = agent.get("host") or "local"
     sessions = spawn.tmux_sessions(host)
@@ -810,7 +858,9 @@ def _open_one(agent: dict, *, force_new: bool, label: str | None,
 
     want = agent.get("session") or agent["id"]
     if want in sessions and not force_new:
-        spawn.attach_window(want, host, tab=tab)
+        spawn.attach_window(want, host, tab=tab, title=agent["name"],
+                            group=config.window_for(agent.get("group")),
+                            color=agent.get("color"), terminal=terminal)
         ui.info(f"Attached a {'tab' if tab else 'window'} to '{want}' on {host}.")
         return
 
@@ -825,6 +875,9 @@ def _open_one(agent: dict, *, force_new: bool, label: str | None,
             host=host,
             session=label or agent["id"],
             config_dir=config.resolve_config_dir(agent),
+            group=config.window_for(agent.get("group")),
+            color=agent.get("color"),
+            terminal=terminal,
         )
     except RuntimeError as e:
         ui.error(str(e))
@@ -834,7 +887,8 @@ def _open_one(agent: dict, *, force_new: bool, label: str | None,
 
 @cli.command("layout")
 @click.option("--dry-run", is_flag=True, help="Show the arrangement without opening anything.")
-def layout_cmd(dry_run: bool) -> None:
+@_terminal_option
+def layout_cmd(dry_run: bool, terminal: str | None) -> None:
     """Rebuild the whole screen: every window group, opened as tabs.
 
     This is the after-a-reboot command. The arrangement is a property of the
@@ -859,6 +913,7 @@ def layout_cmd(dry_run: bool) -> None:
     if dry_run:
         return
 
+    term = terminals.resolve(terminal)
     failed: list[str] = []
     for gi, (name, agents) in enumerate(gs.items()):
         if gi:
@@ -878,7 +933,7 @@ def layout_cmd(dry_run: bool) -> None:
                 # are tabs in it. Counting successes, not position, so a failure
                 # at the head does not leave the group with no window.
                 _open_one(agent, force_new=False, label=None,
-                          list_only=False, tab=(opened > 0))
+                          list_only=False, tab=(opened > 0), terminal=term)
                 opened += 1
             except SystemExit:
                 # One unreachable agent must not abandon the other ten.
