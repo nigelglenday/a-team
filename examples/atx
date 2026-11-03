@@ -306,7 +306,9 @@ trap 'exit 130' INT TERM HUP
 # Attach. mosh survives flaky wifi and roaming; ssh is the fallback.
 exec_attach="tmux attach -t $(printf '%q' "$SESS")"
 if command -v mosh >/dev/null 2>&1; then
-  mosh "$SSH_T" -- $exec_attach || ssh -t "$SSH_T" "$exec_attach"
+  # mosh runs its command without a shell, so the name goes as one argument:
+  # an unquoted $exec_attach split "Acme Builder" into two words.
+  mosh "$SSH_T" -- tmux attach -t "$SESS" || ssh -t "$SSH_T" "$exec_attach"
 else
   ssh -t "$SSH_T" "$exec_attach"
 fi
