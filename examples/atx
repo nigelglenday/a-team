@@ -245,7 +245,7 @@ STRICT=""
 [ -n "$SETTINGS" ] && STRICT="$STRICT --settings $(printf '%q' "$SETTINGS")"
 REMOTE_CMD="cd $(printf '%q' "$PATH_") && $HARNESS $RC$STRICT"
 
-if echo "$EXISTING" | grep -qx "$SESS"; then
+if printf '%s\n' "$RAW" | grep -qxF -- "$SESS"; then
   echo "attaching to $RC_NAME on $HOST ($SESS)"
 else
   echo "starting $RC_NAME on $HOST ($PATH_)"
