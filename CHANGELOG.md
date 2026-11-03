@@ -6,6 +6,14 @@ This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-03
+
+### Fixed
+- **`atx` started a second copy of an agent instead of joining it** when the agent's tmux session is
+  named after its `session` field rather than its id (how `session-boot` names fenced agents). `atx`
+  now joins a running session under the `session` field, the name or the id, checks for it by exact
+  name, and passes a name with spaces to mosh as one argument.
+
 ## [0.7.0] - 2026-11-02
 
 ### Added
