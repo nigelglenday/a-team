@@ -198,6 +198,15 @@ elif [ "$NEWSESS" -eq 1 ]; then
   SESS="${ID}-${n}"; RC_NAME="$NAME $n"
 else
   SESS="$ID"; RC_NAME="$NAME"
+  # session-boot names a fenced agent's tmux session after its `session` field
+  # ("Acme-Builder"), not its id. Looking only for the id found nothing and
+  # started a SECOND copy under the same Remote Control name (2026-11-03).
+  # Join the running one if it exists under either name.
+  for cand in "$(field session)" "$NAME"; do
+    if [ -n "$cand" ] && printf '%s\n' "$RAW" | grep -qxF -- "$cand"; then
+      SESS="$cand"; break
+    fi
+  done
 fi
 
 RC=""
