@@ -1524,9 +1524,34 @@ def _manage_flow(agents: list[dict]) -> str | None:
     return None
 
 
+@cli.command("doctor")
+def doctor_cmd() -> None:
+    """Check the registry: is it the shared copy, and is that copy current?
+
+    With the registry in git (README, "One registry for several machines"), it
+    checks this machine's symlink and checkout against origin, then each host in
+    [hosts] over ssh. Exits 1 on a failure, 0 on warnings only."""
+    from . import registry_git as _rg
+
+    p = config.config_path()
+    settings = config.load_settings()
+    rows = _rg.doctor(p, settings, config.load_hosts_table())
+    mark = {"ok": "ok  ", "warn": "WARN", "fail": "FAIL"}
+    for level, msg in rows:
+        click.echo(f"  {mark[level]}  {msg}")
+    if any(level == "fail" for level, _ in rows):
+        sys.exit(1)
+
+
 def main() -> None:
     """Entry point declared in pyproject.toml."""
-    cli()
+    from .registry_git import RegistryError
+
+    try:
+        cli()
+    except RegistryError as e:
+        ui.error(str(e))
+        sys.exit(1)
 
 
 if __name__ == "__main__":

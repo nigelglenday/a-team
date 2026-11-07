@@ -6,6 +6,23 @@ This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-06
+
+### Added
+- **A registry kept in git.** When `~/.config/a-team/agents.toml` is a symlink into a git checkout,
+  commands that change the registry commit the change in a throwaway worktree, push the branch, and
+  land it (with `land` on PATH, else a push to the default branch, a fast-forward of the checkout and a
+  pull on each `[hosts]` machine). The commit subject names what changed (`registry: add Beta`). A write
+  from a copy behind origin is refused after the copy is fast-forwarded. README, "One registry for
+  several machines".
+- **`registry_source`** under `[settings]`: a-team refuses to write when agents.toml is not a symlink to it.
+- **`a-team doctor`**: checks the registry link, the checkout against origin, uncommitted edits in it,
+  and the same on each `[hosts]` machine. Exits 1 on a failure.
+
+### Fixed
+- A save through a symlinked registry replaced the link with a plain file (`os.replace` swaps the link,
+  not its target), silently forking the registry from its source.
+
 ## [0.7.1] - 2026-11-03
 
 ### Fixed

@@ -88,9 +88,22 @@ def _render(data: dict, existing: str | None) -> bytes:
 def _save_raw(data: dict) -> None:
     """Write the registry atomically: serialize to a temp file in the same
     directory, then os.replace() over the target. A crash mid-write leaves the
-    old registry intact rather than a truncated file."""
+    old registry intact rather than a truncated file.
+
+    A registry that is a symlink into a git checkout is never written through
+    the link (os.replace would also turn the link into a plain file): the change
+    is committed in a worktree and landed instead (registry_git.py)."""
+    from . import registry_git as _rg
+
     _ensure_config_exists()
     p = config_path()
+    old = _load_raw()
+    bad = _rg.check_source(p, old.get("settings", {}))
+    if bad:
+        raise _rg.RegistryError(bad + "; not writing a copy that would drift. See `a-team doctor`.")
+    if _rg.backing(p):
+        _rg.save(p, old, data, _render, old.get("hosts", {}))
+        return
     existing = p.read_text() if p.exists() else None
     payload = _render(data, existing)
     tmp = p.with_name(p.name + f".tmp.{os.getpid()}")
