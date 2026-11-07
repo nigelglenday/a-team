@@ -223,6 +223,35 @@ covers the failure modes, chiefly that SSH logins on macOS cannot read the keych
 which makes Claude Code fall back to API-key mode and silently disables Remote
 Control until you start the tmux server from a GUI session.
 
+### One registry for several machines
+
+With agents on two machines, keep the registry in a git repo and make
+`~/.config/a-team/agents.toml` on each machine a symlink to the file in that
+repo's checkout. Two plain copies drift: a new agent lands in one, and every tool
+reading the other is quietly wrong.
+
+```bash
+ln -sfn ~/dotfiles/config/agents.toml ~/.config/a-team/agents.toml   # on every machine
+```
+
+```toml
+[settings]
+registry_source = "~/dotfiles/config/agents.toml"   # refuse to write anywhere else
+```
+
+The checkout is only ever pulled. A command that changes the registry (`new`, `set`,
+`archive`, `rm`, `config ...`) never writes through the link: it adds a throwaway
+worktree on a branch, commits there, pushes, and lands the branch on the default
+branch, with a `land` command if one is on your PATH (it should merge into the
+checkout and push), else by pushing to the default branch, fast-forwarding the
+checkout and pulling it on each `[hosts]` machine. A change made from a copy that
+is behind origin is refused, after the copy is brought up to date, so running the
+command again works. To edit by hand, edit the file in your own worktree of the
+repo, commit and land it; never in the checkout the link points at.
+
+`a-team doctor` checks it: the link, the checkout against origin, uncommitted
+edits in the checkout, and the same on each `[hosts]` machine over ssh.
+
 ### Accounts
 
 Each agent can run under a different Claude login, selected by `CLAUDE_CONFIG_DIR` (each config dir holds its own account login). Define account profiles and an optional category→account rule:
