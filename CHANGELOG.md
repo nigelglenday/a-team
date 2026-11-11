@@ -6,6 +6,12 @@ This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0
 
 ## [Unreleased]
 
+### Added
+- **Voice fields for Operator.** `a-team set --alias --purpose --readback --voice` writes the
+  optional `aliases`, `purpose`, `readback` and `voice` fields (`''` clears; `--alias` adds and refuses
+  one that names another agent; `--readback` takes summary, full, last, changes or nocode).
+  `a-team doctor` now also warns on a `readback` outside those and a `purpose` over 12 words.
+
 ## [0.8.0] - 2026-11-06
 
 ### Added

@@ -252,6 +252,25 @@ repo, commit and land it; never in the checkout the link points at.
 `a-team doctor` checks it: the link, the checkout against origin, uncommitted
 edits in the checkout, and the same on each `[hosts]` machine over ssh.
 
+### Voice fields (Operator)
+
+Operator, the voice switchboard in the toolkit, routes spoken messages by these optional
+fields. All four are set with `a-team set`; `''` clears one.
+
+```
+a-team set Preload-Builder --alias "Preload Builder" --purpose "Builds Preload's atlas" \
+  --readback full --voice <ElevenLabs voice id>
+```
+
+| Field | Meaning |
+|---|---|
+| `aliases` | Nicknames; `--alias` adds one (repeatable). Every a-team name resolves against them, so an alias that names another agent is refused |
+| `purpose` | One line, at most 12 words, on what the agent does |
+| `readback` | How Operator speaks its replies: `summary` (default), `full`, `last`, `changes`, `nocode` |
+| `voice` | An ElevenLabs voice id for its replies; unset means `[settings] default_voice` |
+
+`a-team doctor` warns on a `readback` outside those five and a `purpose` over 12 words.
+
 ### Accounts
 
 Each agent can run under a different Claude login, selected by `CLAUDE_CONFIG_DIR` (each config dir holds its own account login). Define account profiles and an optional category→account rule:
