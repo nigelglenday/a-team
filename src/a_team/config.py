@@ -680,6 +680,61 @@ def set_fields(name: str, **fields) -> dict:
     return _normalized([target])[0]
 
 
+# Operator's fields (toolkit docs/specs/2026-11-10-operator): all optional.
+#   aliases   spoken nicknames; names already resolve against them (resolve_agent)
+#   purpose   one line, at most 12 words, for the router
+#   readback  how a reply is spoken: one of READBACKS (unset means summary)
+#   voice     an ElevenLabs voice id (unset means [settings] default_voice)
+READBACKS = ("summary", "full", "last", "changes", "nocode")
+PURPOSE_WORDS = 12
+
+
+def merged_aliases(name: str, new: tuple[str, ...] | list[str]) -> list[str] | None:
+    """The agent's aliases with `new` added (in order, no repeats). A lone '' clears
+    them (returns None). Refuses an alias that already names another agent, by id,
+    name or alias, since resolve_agent would then call both ambiguous."""
+    agent = resolve_agent(name)
+    if not agent:
+        raise ValueError(f"agent '{name}' not found")
+    new = [" ".join(str(x).split()) for x in new]
+    if new == [""]:
+        return None
+    if "" in new:
+        raise ValueError("--alias '' clears the aliases; give it alone")
+    out = list(_agent_aliases(agent))
+    for alias in new:
+        for other in load_agents_normalized():
+            if other["id"] == agent["id"]:
+                continue
+            if alias == other["id"] or alias == other.get("name") or alias in _agent_aliases(other):
+                raise ValueError(f"alias {alias!r} already names {other.get('name')}")
+        if alias not in out:
+            out.append(alias)
+    return out
+
+
+def field_problems(agents: list[dict]) -> list[tuple[str, str]]:
+    """a-team doctor rows for Operator's fields: a readback outside READBACKS, a
+    purpose over PURPOSE_WORDS words, aliases that are not a list of strings."""
+    rows: list[tuple[str, str]] = []
+    for a in agents:
+        who = a.get("name") or a.get("id") or "?"
+        rb = a.get("readback")
+        if rb is not None and rb not in READBACKS:
+            rows.append(("warn", f"{who}: readback {rb!r} is not one of {', '.join(READBACKS)}"))
+        purpose = a.get("purpose")
+        if purpose is not None:
+            n = len(str(purpose).split())
+            if n > PURPOSE_WORDS:
+                rows.append(("warn", f"{who}: purpose has {n} words; keep it to {PURPOSE_WORDS}"))
+        al = a.get("aliases")
+        if al is not None and not (isinstance(al, list) and all(isinstance(x, str) for x in al)):
+            rows.append(("warn", f"{who}: aliases must be a list of strings"))
+    if not rows:
+        rows.append(("ok", "readback, purpose and aliases fields are valid"))
+    return rows
+
+
 def set_status(name: str, status: str) -> dict:
     """Archive or reactivate an agent. Archived agents stay in the registry
     and keep their id, but drop out of the picker, the TUI, `a-team ls` and

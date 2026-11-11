@@ -1055,9 +1055,33 @@ def _signal_install(write: bool, via: str | None) -> None:
               help="Group path, slash-nested e.g. deal or backoffice/sidekick ('' clears).")
 @click.option("--boot/--no-boot", "boot", default=None, help="Start on reboot.")
 @click.option("--account", default=None, help="Account key. Selects the Claude login only if it names a key in [accounts]; otherwise it is just a per-agent label and the category rule picks the login.")
-def set_cmd(name: str, group: str | None, boot: bool | None, account: str | None) -> None:
+@click.option("--alias", "aliases", multiple=True,
+              help="Add a nickname (repeatable): names resolve against it, and Operator routes by it. --alias '' clears them.")
+@click.option("--purpose", default=None,
+              help="One line, at most 12 words, on what the agent does (Operator's router reads it). '' clears.")
+@click.option("--readback", default=None, type=click.Choice(["", *config.READBACKS]),
+              help="How Operator speaks this agent's replies (default summary). '' clears.")
+@click.option("--voice", default=None, help="ElevenLabs voice id for this agent's replies in Operator. '' clears.")
+def set_cmd(name: str, group: str | None, boot: bool | None, account: str | None,
+            aliases: tuple[str, ...], purpose: str | None, readback: str | None,
+            voice: str | None) -> None:
     """Set registry fields on an agent."""
     fields: dict = {}
+    if aliases:
+        try:
+            fields["aliases"] = config.merged_aliases(name, aliases)
+        except ValueError as e:
+            ui.error(str(e))
+            sys.exit(1)
+    if purpose is not None:
+        purpose = " ".join(purpose.split())
+        if len(purpose.split()) > config.PURPOSE_WORDS:
+            ui.warn(f"purpose has {len(purpose.split())} words; keep it to {config.PURPOSE_WORDS} (a-team doctor reports it)")
+        fields["purpose"] = purpose or None
+    if readback is not None:
+        fields["readback"] = readback or None
+    if voice is not None:
+        fields["voice"] = voice.strip() or None
     if group is not None:
         fields["group"] = group or None
     if boot is not None:
@@ -1526,7 +1550,8 @@ def _manage_flow(agents: list[dict]) -> str | None:
 
 @cli.command("doctor")
 def doctor_cmd() -> None:
-    """Check the registry: is it the shared copy, and is that copy current?
+    """Check the registry: is it the shared copy, is that copy current, and are
+    Operator's fields (readback, purpose) valid?
 
     With the registry in git (README, "One registry for several machines"), it
     checks this machine's symlink and checkout against origin, then each host in
@@ -1536,6 +1561,7 @@ def doctor_cmd() -> None:
     p = config.config_path()
     settings = config.load_settings()
     rows = _rg.doctor(p, settings, config.load_hosts_table())
+    rows += config.field_problems(config.load_agents())
     mark = {"ok": "ok  ", "warn": "WARN", "fail": "FAIL"}
     for level, msg in rows:
         click.echo(f"  {mark[level]}  {msg}")
