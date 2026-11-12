@@ -22,6 +22,7 @@ from pathlib import Path
 import click
 import questionary
 
+from . import colors as _colors
 from . import config, desks, notify, spawn, terminals, ui
 
 
@@ -82,7 +83,7 @@ def _open(
             session=agent.get("id"),
             config_dir=config.resolve_config_dir(agent, harness=hk),
             group=config.window_for(agent.get("group")),
-            color=agent.get("color"),
+            color=_colors.workspace_color(agent),
             terminal=terminal,
         )
         return True
@@ -290,7 +291,39 @@ def _record(agent: dict) -> dict:
     out["ssh"] = config.resolve_host(agent).ssh_alias
     out["status"] = agent.get("status") or "active"
     out["boot"] = bool(agent.get("boot"))
+    c = _colors.for_agent(agent)
+    out["tint"] = c["tint"] if c else None
+    out["accent"] = c["accent"] if c else None
     return out
+
+
+@cli.command("color")
+@click.argument("identifier")
+@click.option("--json", "as_json", is_flag=True, help="Emit {name, tint, accent, table} as JSON.")
+def color_cmd(identifier: str, as_json: bool) -> None:
+    """Print an agent's colors: "tint accent".
+
+    Read from the session-colors table (colors.py says which file), the same
+    one the toolkit's tmux side reads, so there is one place to set a color.
+    Exits 1 if the agent is unknown or there is no table.
+    """
+    try:
+        agent = config.resolve_agent(identifier)
+    except ValueError as e:
+        ui.error(str(e))
+        sys.exit(2)
+    if not agent:
+        ui.error(f"no agent matches {identifier!r}")
+        sys.exit(1)
+    path = _colors.table_path()
+    c = _colors.for_agent(agent, path)
+    if not c:
+        ui.error("no session-colors table: set SESSION_COLORS, or session_colors in the registry settings")
+        sys.exit(1)
+    if as_json:
+        click.echo(json.dumps({"name": agent["name"], **c, "table": str(path)}))
+    else:
+        click.echo(f"{c['tint']} {c['accent']}")
 
 
 @cli.command("resolve")
@@ -860,7 +893,7 @@ def _open_one(agent: dict, *, force_new: bool, label: str | None,
     if want in sessions and not force_new:
         spawn.attach_window(want, host, tab=tab, title=agent["name"],
                             group=config.window_for(agent.get("group")),
-                            color=agent.get("color"), terminal=terminal)
+                            color=_colors.workspace_color(agent), terminal=terminal)
         ui.info(f"Attached a {'tab' if tab else 'window'} to '{want}' on {host}.")
         return
 
@@ -876,7 +909,7 @@ def _open_one(agent: dict, *, force_new: bool, label: str | None,
             session=label or agent["id"],
             config_dir=config.resolve_config_dir(agent),
             group=config.window_for(agent.get("group")),
-            color=agent.get("color"),
+            color=_colors.workspace_color(agent),
             terminal=terminal,
         )
     except RuntimeError as e:
