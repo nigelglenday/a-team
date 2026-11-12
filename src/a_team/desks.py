@@ -121,9 +121,10 @@ def pane_command(agent: dict) -> str:
 
     host = _hosts.get(agent.get("host"))
     if host.is_remote:
-        tmux = f"{TMUX_BIN} attach -t {zsh_safe_quote(agent.get('session') or agent['id'])}"
+        session = agent.get('session') or agent['id']
+        tmux = f"{TMUX_BIN} attach -t {zsh_safe_quote(session)}"
         cmd = ("MOSH_TITLE_NOPREFIX=1; export MOSH_TITLE_NOPREFIX; "
-               + _hosts.reconnecting_attach(host.ssh_alias, tmux))
+               + _hosts.reconnecting_attach(host.ssh_alias, tmux, session))
     else:
         tmux = _hosts.local_tmux() or TMUX_BIN
         cmd = f"exec {tmux} attach -t {zsh_safe_quote(agent['id'])}"

@@ -686,12 +686,65 @@ class RemoteWindowsReconnect(unittest.TestCase):
     def test_launch_and_attach_loop_and_restore(self):
         from a_team import hosts
         cmd = hosts.reconnecting_attach("m3", "tmux new-session -A -s x")
-        self.assertTrue(cmd.startswith("while :; do mosh m3 -- "))
-        self.assertIn("&& break", cmd)
+        self.assertTrue(cmd.startswith("while :; do t=$(date +%s); mosh m3 -- "))
+        self.assertIn("if [ $r -eq 255 ]", cmd)   # a dropped ssh link reconnects
         self.assertIn("\\033[?1006l", cmd)   # SGR mouse mode off after a drop
         src = pathlib.Path(__file__).resolve().parents[1] / "src/a_team"
         self.assertIn("reconnecting_attach", (src / "spawn.py").read_text())
         self.assertIn("return reconnecting_attach", (src / "hosts.py").read_text())
+
+
+class ReattachLoopBehaviour(unittest.TestCase):
+    """Run the loop for real against stub ssh, mosh and sleep (2026-11-12).
+
+    Stops after a deliberate detach, reconnects after a dropped link, and
+    backs off with one line on a missing session or an unreachable host."""
+
+    def run_loop(self, probe_codes, attach_codes, max_sleeps=4):
+        import subprocess, tempfile
+        from a_team import hosts
+        d = pathlib.Path(tempfile.mkdtemp())
+        (d / "probe").write_text("\n".join(map(str, probe_codes)) + "\n")
+        (d / "attach").write_text("\n".join(map(str, attach_codes)) + "\n")
+        def stub(name, body):
+            (d / name).write_text("#!/bin/bash\n" + body)
+            (d / name).chmod(0o755)
+        pop = 'f="$D/$1"; c=$(head -1 "$f"); [ $(wc -l < "$f") -gt 1 ] && sed -i "" 1d "$f"; echo "$c"'
+        stub("pop", pop)
+        stub("ssh", 'echo "ssh $*" >> "$D/log"; case "$*" in *has-session*) exit $("$D/pop" probe);; '
+                    '*) exit $("$D/pop" attach);; esac\n')
+        stub("mosh", 'echo "mosh $*" >> "$D/log"\n')
+        stub("sleep", f'echo "sleep $1" >> "$D/log"; n=$(grep -c ^sleep "$D/log"); '
+                      f'[ "$n" -ge {max_sleeps} ] && kill -TERM $PPID; exit 0\n')
+        stub("stty", "exit 0\n")
+        cmd = hosts.reconnecting_attach("m3", "tmux attach -t x", "x")
+        env = {**os.environ, "PATH": f"{d}:/usr/bin:/bin", "D": str(d)}
+        r = subprocess.run(["/bin/bash", "-c", cmd], env=env, capture_output=True, text=True, timeout=30)
+        log = (d / "log").read_text() if (d / "log").exists() else ""
+        return r.stdout, log
+
+    def test_missing_session_backs_off_with_one_line(self):
+        out, log = self.run_loop([1], [0])
+        self.assertEqual(out.count("no session x on m3"), 1)
+        self.assertEqual(log.count("sleep 60"), 4)
+        self.assertNotIn("mosh", log)
+
+    def test_unreachable_backs_off(self):
+        out, log = self.run_loop([255], [0])
+        self.assertEqual(out.count("cannot reach m3"), 1)
+        sleeps = [l for l in log.splitlines() if l.startswith("sleep")]
+        self.assertEqual(sleeps, ["sleep 3", "sleep 6", "sleep 12", "sleep 24"])
+
+    def test_detach_stops(self):
+        out, log = self.run_loop([0], [0])
+        self.assertEqual(log.count("mosh "), 1)        # attached once, no retry
+        self.assertNotIn("sleep", log)
+        self.assertNotIn("reconnecting", out)
+
+    def test_dropped_link_reconnects_then_detach_stops(self):
+        out, log = self.run_loop([0], [255, 0])
+        self.assertEqual(out.count("connection lost; reconnecting"), 1)
+        self.assertEqual(log.count("mosh "), 2)
 
 
 class LocalTmuxTest(unittest.TestCase):
