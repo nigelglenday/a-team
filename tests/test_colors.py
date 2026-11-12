@@ -75,6 +75,11 @@ class Colors(unittest.TestCase):
         rec = json.loads(self.a_team("resolve", "rmc-associate", "--json").output)
         self.assertEqual((rec["tint"], rec["accent"]), ("#1a2d1f", "#6BBF7A"))
 
+    def test_workspace_color_skips_a_non_hex_accent(self) -> None:
+        # the catch-all row's accent is "default", which cmux rejects (M3-Prospecting, 12 Nov)
+        with mock.patch.object(colors, "for_agent", return_value={"tint": "#262624", "accent": "default"}):
+            self.assertIsNone(colors.workspace_color({"id": "m3-prospecting", "name": "M3-Prospecting"}))
+
     def test_workspace_color_prefers_the_registry_override(self) -> None:
         self.assertEqual(colors.workspace_color({"id": "rmc-associate", "name": "RMC-Associate",
                                                  "color": "Magenta"}), "Magenta")

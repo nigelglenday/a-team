@@ -20,6 +20,8 @@ color and nothing is colored.
 
 from __future__ import annotations
 
+import re
+
 import os
 from pathlib import Path
 
@@ -83,4 +85,7 @@ def workspace_color(agent: dict) -> str | None:
     if agent.get("color"):
         return agent["color"]
     c = for_agent(agent)
-    return c["accent"] if c else None
+    # The table's catch-all accent is "default" (tmux's word for no color); cmux takes
+    # only a hex value or its own color names, so anything but #RRGGBB means none.
+    accent = c["accent"] if c else None
+    return accent if accent and re.fullmatch(r"#[0-9A-Fa-f]{6}", accent) else None
