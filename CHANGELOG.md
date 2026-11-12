@@ -6,6 +6,14 @@ This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0
 
 ## [Unreleased]
 
+### Fixed
+- **Remote windows reattach on their own, and stop when you detach.** `reconnecting_attach` no
+  longer reads mosh's exit status, which means nothing (1 after a clean detach). Given the session
+  name (desk panes and `cmux-layout` now pass it), the loop asks the server after each attach: still
+  there means a deliberate detach, so it stops; gone or unreachable means it waits and attaches
+  again. A missing session prints one line and is checked every 60 s; an unreachable host prints one
+  line and backs off from 3 s to 60 s. A dropped ssh link (exit 255) reconnects as before.
+
 ### Added
 - **Voice fields for Operator.** `a-team set --alias --purpose --readback --voice` writes the
   optional `aliases`, `purpose`, `readback` and `voice` fields (`''` clears; `--alias` adds and refuses

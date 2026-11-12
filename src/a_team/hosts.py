@@ -127,7 +127,7 @@ RESTORE_TERM = (
 )
 
 
-def reconnecting_attach(alias: str, tmux: str) -> str:
+def reconnecting_attach(alias: str, tmux: str, session: str | None = None) -> str:
     """Attach to a remote tmux session and come back after a dropped link.
 
     On 2026-10-16 Hooli-Builder's window fell back from mosh to ssh, the ssh
@@ -136,19 +136,45 @@ def reconnecting_attach(alias: str, tmux: str) -> str:
     "64;68;11M65;68;11M" at the prompt and the agent looked broken. The session
     on the server was fine.
 
-    So: try mosh, then ssh. Exit 0 means a deliberate detach or the agent
-    quitting, and ends the loop. Anything else is a dropped link: put the
-    terminal back, say so, wait, and attach again. Ctrl-C stops it."""
-    one = (f"mosh {alias} -- {tmux} "
-           f"|| ssh -t {alias} {shlex.quote(tmux)}")
-    return (
-        f"while :; do {one} && break; "
-        f"{RESTORE_TERM}; "
-        "echo; echo 'a-team: connection lost; reconnecting in 3s (Ctrl-C to stop)'; "
-        "sleep 3; done; "
-        f"{RESTORE_TERM}"
-    )
+    Try mosh; if mosh is gone within 5 seconds it failed to connect, so try
+    ssh. mosh's exit status says nothing (measured 2026-11-12: 1 after a clean
+    detach, 1 for `true`, 0 for `false`), so it is never used. After every
+    attach the terminal is put back, then:
+      ssh exited 255     the link dropped: say so and attach again.
+      session given      ask the server. Still there: a deliberate detach
+                         (prefix-d), so stop. Gone or unreachable: keep going.
+      no session given   stop (attach-or-create callers; nothing to ask).
+    With a session, every round first asks whether it exists. Missing: print
+    one line and look again every 60 s, so a session that is being restarted
+    or recreated after a reboot is picked up without spinning. Unreachable:
+    print one line and back off from 3 s to 60 s. Ctrl-C stops the loop.
 
+    2026-11-12: M3-Compass-Ops' window ran a bare `ssh -t m3 tmux attach`,
+    which exited on 10 Nov and left a local prompt for two days."""
+    restore = RESTORE_TERM
+    q = shlex.quote
+    attach = (f"t=$(date +%s); mosh {alias} -- {tmux}; r=0; "
+              f"[ $(( $(date +%s) - t )) -lt 5 ] && {{ ssh -t {alias} {q(tmux)}; r=$?; }}; "
+              f"{restore}; "
+              "if [ $r -eq 255 ]; then echo; "
+              "echo 'a-team: connection lost; reconnecting in 3s (Ctrl-C to stop)'; sleep 3; continue; fi; ")
+    if not session:
+        return f"while :; do {attach}break; done; {restore}"
+    has = f"{tmux.split()[0]} has-session -t {q('=' + session)}"
+    probe = f"ssh -o ConnectTimeout=10 -o BatchMode=yes {alias} {q(has)} </dev/null 2>/dev/null"
+    gone = q(f"a-team: no session {session} on {alias}; checking again every 60s (Ctrl-C to stop)")
+    down = q(f"a-team: cannot reach {alias}; retrying (Ctrl-C to stop)")
+    return (
+        "d=3; w=; while :; do "
+        f"{probe}; r=$?; "
+        f"if [ $r -eq 1 ]; then [ \"$w\" = gone ] || {{ echo; echo {gone}; }}; w=gone; sleep 60; continue; fi; "
+        f"if [ $r -ne 0 ]; then [ \"$w\" = down ] || {{ echo; echo {down}; }}; w=down; "
+        "sleep $d; d=$((d*2)); [ $d -gt 60 ] && d=60; continue; fi; "
+        "w=; d=3; "
+        f"{attach}"
+        f"{probe} && break; "
+        f"done; {restore}"
+    )
 
 
 def _remote_cd_target(path: str) -> str:
