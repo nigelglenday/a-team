@@ -6,7 +6,8 @@ A desk is a `[[desk]]` table in agents.toml:
     name = "Client-A"
     group = "Clients"                 # optional cmux workspace group
     agents = ["Client-A Associate", "Researcher"]
-    color = "Blue"                    # optional cmux color name or "#hex"
+    color = "Blue"                    # optional cmux color name or "#hex";
+                                      # default: the first agent's accent (colors.py)
     pin = true                        # optional
 
 The first agent fills the left half; the rest stack down the right half.
@@ -23,6 +24,7 @@ import json
 import re
 import time
 
+from . import colors as _colors
 from . import hosts as _hosts
 from .terminals import Cmux, _slug, bash_wrapped, zsh_safe_quote
 
@@ -185,9 +187,11 @@ def build(cmux: Cmux, desks: list[dict], agents: list[dict]) -> None:
         for i, n in enumerate(d["agents"][1:], 1):
             cmux._ok(cmux._run("new-split", "right" if i == 1 else "down", "--workspace", ws,
                                "--command", pane_command(lookup(n, by))), "new-split")
-        if d["color"]:
+        # The desk's own color, else its first agent's (session-colors table).
+        color = d["color"] or _colors.workspace_color(lookup(d["agents"][0], by))
+        if color:
             cmux._ok(cmux._run("workspace-action", "--workspace", ws, "--action", "set-color",
-                               "--color", d["color"]), "workspace-action set-color")
+                               "--color", color), "workspace-action set-color")
         if d["pin"]:
             cmux._ok(cmux._run("workspace-action", "--workspace", ws, "--action", "pin"),
                      "workspace-action pin")

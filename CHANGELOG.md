@@ -15,6 +15,11 @@ This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0
   line and backs off from 3 s to 60 s. A dropped ssh link (exit 255) reconnects as before.
 
 ### Added
+- **Session colors from one table.** `a-team color <name>` prints an agent's tint and accent, read
+  from the toolkit's session-colors table (the one tmux tints sessions from), so a-team keeps no
+  copy. `resolve --json` and `ls --json` records carry `tint` and `accent`. A cmux workspace or desk
+  with no `color` of its own now takes its (first) agent's accent. The table is `$SESSION_COLORS`,
+  `session_colors` under [settings], or `~/agents/toolkit/config/session-colors.tsv`.
 - **Voice fields for Operator.** `a-team set --alias --purpose --readback --voice` writes the
   optional `aliases`, `purpose`, `readback` and `voice` fields (`''` clears; `--alias` adds and refuses
   one that names another agent; `--readback` takes summary, full, last, changes or nocode).

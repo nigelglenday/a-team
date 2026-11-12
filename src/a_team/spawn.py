@@ -16,6 +16,7 @@ import shlex
 import subprocess
 import time
 
+from . import colors as _colors
 from . import harness as _harness
 from . import hosts as _hosts
 from . import terminals as _terminals
@@ -237,7 +238,7 @@ def open_all(agents: list[dict], delay_between: float = 1.0,
             session=agent.get("id"),
             config_dir=config.resolve_config_dir(agent, harness=harness_key),
             group=config.window_for(agent.get("group")),
-            color=agent.get("color"),
+            color=_colors.workspace_color(agent),
             terminal=term,
         )
         time.sleep(delay_between)

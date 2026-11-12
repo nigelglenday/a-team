@@ -20,6 +20,7 @@ from textual.screen import ModalScreen
 from textual.widgets import DataTable, Footer, Header, Input, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
+from . import colors as _colors
 from . import config, spawn, status
 from .ui import _short_path
 
@@ -340,7 +341,7 @@ class ATeamTUI(App):
                 harness=chosen,
                 config_dir=config.resolve_config_dir(agent, harness=chosen),
                 group=config.window_for(agent.get("group")),
-                color=agent.get("color"),
+                color=_colors.workspace_color(agent),
             ),
             thread=True,
         )
