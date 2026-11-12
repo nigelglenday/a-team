@@ -735,6 +735,11 @@ class ReattachLoopBehaviour(unittest.TestCase):
         sleeps = [l for l in log.splitlines() if l.startswith("sleep")]
         self.assertEqual(sleeps, ["sleep 3", "sleep 6", "sleep 12", "sleep 24"])
 
+    def test_exact_match_survives_remote_zsh(self):
+        from a_team import hosts
+        cmd = hosts.reconnecting_attach("m3", "tmux attach -t Ops", "Ops")
+        self.assertIn("has-session -t '\"'\"'=Ops'\"'\"'", cmd)   # never a bare =Ops
+
     def test_detach_stops(self):
         out, log = self.run_loop([0], [0])
         self.assertEqual(log.count("mosh "), 1)        # attached once, no retry
