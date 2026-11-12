@@ -160,7 +160,10 @@ def reconnecting_attach(alias: str, tmux: str, session: str | None = None) -> st
               "echo 'a-team: connection lost; reconnecting in 3s (Ctrl-C to stop)'; sleep 3; continue; fi; ")
     if not session:
         return f"while :; do {attach}break; done; {restore}"
-    has = f"{tmux.split()[0]} has-session -t {q('=' + session)}"
+    # Quoted by hand: shlex leaves =name bare, and the remote zsh reads a bare =word as a
+    # command lookup, so has-session never ran and every session looked missing
+    exact = "'=" + session.replace("'", "'\\''") + "'"
+    has = f"{tmux.split()[0]} has-session -t {exact}"
     probe = f"ssh -o ConnectTimeout=10 -o BatchMode=yes {alias} {q(has)} </dev/null 2>/dev/null"
     gone = q(f"a-team: no session {session} on {alias}; checking again every 60s (Ctrl-C to stop)")
     down = q(f"a-team: cannot reach {alias}; retrying (Ctrl-C to stop)")
