@@ -7,6 +7,8 @@ This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0
 ## [Unreleased]
 
 ### Fixed
+
+- `a-team open` no longer crashes for an agent whose color row has the accent `default` (the catch-all): cmux takes only a hex value, so such a workspace keeps its default color.
 - **Remote windows reattach on their own, and stop when you detach.** `reconnecting_attach` no
   longer reads mosh's exit status, which means nothing (1 after a clean detach). Given the session
   name (desk panes and `cmux-layout` now pass it), the loop asks the server after each attach: still
