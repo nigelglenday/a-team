@@ -462,7 +462,13 @@ def migrate_registry(*, apply: bool) -> dict:
         bak = p.with_name(p.name + f".bak-{time.strftime('%Y%m%d-%H%M%S')}")
         shutil.copy2(p, bak)
         report["backup"] = str(bak)
-        save_agents(norm)  # preserves [settings]/[accounts] via _load_raw + atomic write
+        # Backfill only id and harness into the raw entries. Writing the
+        # normalized records would also write every in-memory default (session,
+        # rc, boot, None for mcp...), and TOML has no None, so the write failed.
+        for a, n in zip(raw, norm):
+            a.setdefault("id", n["id"])
+            a.setdefault("harness", n["harness"])
+        save_agents(raw)  # preserves [settings]/[accounts] via _load_raw + atomic write
     return report
 
 
@@ -489,6 +495,7 @@ def add_agent(
     agent_id: str | None = None,
     host: str | None = None,
     create_dir: bool = False,
+    manifest: dict | None = None,
 ) -> dict:
     """Append a new agent with a stable id, saved harness, and host.
 
@@ -497,7 +504,8 @@ def add_agent(
     For a remote host the folder is validated (and with create_dir=True, created)
     ON THAT MACHINE over SSH, never against this filesystem. `account` is an
     explicit override; leave None to let the category rule decide the Claude
-    account. `harness` defaults to Claude Code."""
+    account. `harness` defaults to Claude Code. `manifest` is the role,
+    customer, skills and model keys (see manifest()), written after the rest."""
     if find_agent(name):
         raise ValueError(f"agent '{name}' already exists")
     host_key = _hosts.normalize_key(host)
@@ -519,9 +527,60 @@ def add_agent(
         agent["category"] = category
     if account:
         agent["account"] = account
+    if manifest:
+        agent.update(manifest)
     agents.append(agent)
     save_agents(agents)
     return agent
+
+
+# The instruction-layer manifest (toolkit, instruction-layers plan, 2026-11-16).
+# The toolkit's `inherits` and its SessionStart hook read these keys; a-team
+# writes them on `new` and keeps them on every rewrite, and doctor warns when
+# role is missing. An absent customer is "", and model "default" passes no
+# --model (session-boot's rule, which replaced models.tsv).
+ROLES = ("sidekick", "associate", "backoffice", "personal")
+DEFAULT_MODEL = "default"
+
+
+def manifest(role: str, customer: str | None = None, model: str | None = None) -> dict:
+    """The four manifest keys for a new agent, spelled the way the registry does."""
+    if role not in ROLES:
+        raise ValueError(f"role must be one of {', '.join(ROLES)}, not {role!r}")
+    return {
+        "role": role,
+        "customer": customer or "",
+        "skills": [],
+        "model": model or DEFAULT_MODEL,
+    }
+
+
+def role_problems(agents: list[dict]) -> list[tuple[str, str]]:
+    """a-team doctor rows: an active entry with no role, or a role outside ROLES.
+    Warnings only: `inherits --check` is the strict check. Archived entries are
+    skipped, since they never start."""
+    rows: list[tuple[str, str]] = []
+    for a in agents:
+        if a.get("status") == "archived":
+            continue
+        who = a.get("name") or a.get("id") or "?"
+        role = a.get("role")
+        if not role:
+            rows.append(("warn", f"{who}: no role (one of {', '.join(ROLES)})"))
+        elif role not in ROLES:
+            rows.append(("warn", f"{who}: role {role!r} is not one of {', '.join(ROLES)}"))
+    if not rows:
+        rows.append(("ok", "every active agent has a role"))
+    return rows
+
+
+def inherits_id(agent: dict) -> str | None:
+    """The id to run `inherits --check` on before starting this agent, or None
+    to skip it. Scratch sessions are one-off chats outside the instruction
+    layers (no role, no CLAUDE.md), so the check would refuse every one."""
+    if agent.get("category") == SCRATCH_CATEGORY:
+        return None
+    return agent.get("id")
 
 
 def remove_agent(name: str) -> bool:

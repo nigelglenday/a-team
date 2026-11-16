@@ -85,6 +85,7 @@ def _open(
             group=config.window_for(agent.get("group")),
             color=_colors.workspace_color(agent),
             terminal=terminal,
+            check_id=config.inherits_id(agent),
         )
         return True
     except RuntimeError as e:
@@ -271,10 +272,14 @@ def all_cmd(ctx: click.Context, terminal: str | None) -> None:
         return
 
     if not no_splash:
-        ui.print_splash(len(agents))
+        ui.print_splash(len(boot))
 
     ui.info(f"Restoring {len(boot)} agents…")
-    spawn.open_all(boot, terminal=terminals.resolve(terminal))
+    failed = spawn.open_all(boot, terminal=terminals.resolve(terminal))
+    for msg in failed:
+        ui.error(msg)
+    if failed:
+        sys.exit(1)
     ui.info("Done.")
 
 
@@ -487,9 +492,16 @@ def scratch_cmd(label: str | None) -> None:
               help="Clone PARENT's host, category, account, harness and MCP grant; record the lineage.")
 @click.option("--boot/--no-boot", "boot", default=None,
               help="Start this agent on reboot (`a-team all`). Default: no.")
+@click.option("--role", type=click.Choice(config.ROLES), default=None,
+              help="Required (a --sibling takes its parent's): picks the role layer the agent inherits.")
+@click.option("--customer", default=None, metavar="SLUG",
+              help="The atlas-crm deal slug the agent serves. Default: none.")
+@click.option("--model", default=None,
+              help="The --model its session starts with. Default: 'default' (passes none).")
 def new_cmd(name: str, path: str | None, category: str | None, account: str | None,
             harness: str | None, host: str | None, sibling_of: str | None,
-            boot: bool | None) -> None:
+            boot: bool | None, role: str | None, customer: str | None,
+            model: str | None) -> None:
     """Register a new agent.
 
     PATH lookup order if omitted:
@@ -500,7 +512,11 @@ def new_cmd(name: str, path: str | None, category: str | None, account: str | No
     With --sibling, the new agent inherits the parent's host, category,
     account, harness and MCP grant unless you override them explicitly, and
     records `parent` so the lineage is visible in the registry rather than
-    only in whoever's memory created it.
+    only in whoever's memory created it. It takes the parent's role, customer
+    and model the same way.
+
+    Every new agent records role, customer, skills (empty) and model, the keys
+    the toolkit's `inherits` builds its instruction stack from.
     """
     from . import hosts as _hosts
 
@@ -519,6 +535,19 @@ def new_cmd(name: str, path: str | None, category: str | None, account: str | No
         category = category if category is not None else parent.get("category")
         account = account if account is not None else parent.get("account")
         harness = harness if harness is not None else parent.get("harness")
+        role = role if role is not None else parent.get("role")
+        customer = customer if customer is not None else parent.get("customer")
+        model = model if model is not None else parent.get("model")
+
+    if not role:
+        ui.error("--role is required: one of " + ", ".join(config.ROLES)
+                 + (f" ({parent['name']} has none to inherit)" if parent else "") + ".")
+        sys.exit(2)
+    try:
+        manifest = config.manifest(role, customer=customer, model=model)
+    except ValueError as e:  # a parent's role outside ROLES
+        ui.error(str(e))
+        sys.exit(2)
 
     # No --host given? Use the configured default (a-team config default-host).
     host_key = _hosts.normalize_key(host if host is not None else config.get_default_host())
@@ -533,7 +562,8 @@ def new_cmd(name: str, path: str | None, category: str | None, account: str | No
         resolved = path or f"~/agents/{config.slugify(name)}"
 
     try:
-        agent = config.add_agent(name, resolved, category=category, account=account, harness=harness, host=host_key, create_dir=True)
+        agent = config.add_agent(name, resolved, category=category, account=account, harness=harness, host=host_key, create_dir=True,
+                                 manifest=manifest)
     except ValueError as e:
         ui.error(str(e))
         sys.exit(1)
@@ -911,6 +941,7 @@ def _open_one(agent: dict, *, force_new: bool, label: str | None,
             group=config.window_for(agent.get("group")),
             color=_colors.workspace_color(agent),
             terminal=terminal,
+            check_id=config.inherits_id(agent),
         )
     except RuntimeError as e:
         ui.error(str(e))
@@ -1378,7 +1409,7 @@ def run_picker(no_splash: bool = False) -> None:
         )
 
         if not no_splash and not splash_shown:
-            ui.print_splash(len(agents))
+            ui.print_splash(len(boot))
             splash_shown = True
 
         if last_action:
@@ -1583,8 +1614,9 @@ def _manage_flow(agents: list[dict]) -> str | None:
 
 @cli.command("doctor")
 def doctor_cmd() -> None:
-    """Check the registry: is it the shared copy, is that copy current, and are
-    Operator's fields (readback, purpose) valid?
+    """Check the registry: is it the shared copy, is that copy current, are
+    Operator's fields (readback, purpose) valid, and does every active agent
+    have a role? A missing role is a warning.
 
     With the registry in git (README, "One registry for several machines"), it
     checks this machine's symlink and checkout against origin, then each host in
@@ -1595,6 +1627,7 @@ def doctor_cmd() -> None:
     settings = config.load_settings()
     rows = _rg.doctor(p, settings, config.load_hosts_table())
     rows += config.field_problems(config.load_agents())
+    rows += config.role_problems(config.load_agents())
     mark = {"ok": "ok  ", "warn": "WARN", "fail": "FAIL"}
     for level, msg in rows:
         click.echo(f"  {mark[level]}  {msg}")

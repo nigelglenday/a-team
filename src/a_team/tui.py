@@ -332,19 +332,25 @@ class ATeamTUI(App):
             )
             return
         self.notify(f"Opening {agent['name']} ({mode}, {h.label})")
-        self.run_worker(
-            partial(
-                spawn.open_agent,
-                agent["name"],
-                agent["path"],
-                session_mode=mode,
-                harness=chosen,
-                config_dir=config.resolve_config_dir(agent, harness=chosen),
-                group=config.window_for(agent.get("group")),
-                color=_colors.workspace_color(agent),
-            ),
-            thread=True,
+        launch = partial(
+            spawn.open_agent,
+            agent["name"],
+            agent["path"],
+            session_mode=mode,
+            harness=chosen,
+            config_dir=config.resolve_config_dir(agent, harness=chosen),
+            group=config.window_for(agent.get("group")),
+            color=_colors.workspace_color(agent),
+            check_id=config.inherits_id(agent),
         )
+
+        def start() -> None:
+            try:
+                launch()
+            except spawn.InheritsCheckFailed as e:
+                self.call_from_thread(self.notify, str(e), severity="error", timeout=30)
+
+        self.run_worker(start, thread=True)
 
     @work
     async def _kill_flow(self, agent: dict) -> None:
