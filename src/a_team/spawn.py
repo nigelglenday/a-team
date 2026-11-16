@@ -13,6 +13,7 @@ name every second; a trap kills it when claude exits or the window closes.
 
 import os
 import shlex
+import shutil
 import subprocess
 import time
 
@@ -75,6 +76,56 @@ def _build_command(
     )
 
 
+class InheritsCheckFailed(RuntimeError):
+    """`inherits --check <id>` exited 1: the agent's instruction stack has stale
+    or missing pieces. The message is the tool's own output."""
+
+
+INHERITS_FALLBACK = "~/agents/toolkit/bin/inherits"
+
+
+def inherits_check(agent_id: str, host: str = _hosts.DEFAULT_HOST,
+                   timeout: int = 60) -> None:
+    """Run the toolkit's `inherits --check <id>` on the agent's host before it starts.
+
+    The tool is the toolkit's, not a-team's: found on PATH, else at
+    ~/agents/toolkit/bin/inherits, on the host the agent runs on (over ssh for a
+    remote one). Not installed, unreachable or timed out: skip, since the
+    launch itself reports an unreachable host. Only exit 1 stops the start
+    (exit 2, an unknown agent, does not), raising InheritsCheckFailed with the
+    tool's output."""
+    target = _hosts.get(host)
+    if target.is_remote:
+        q = shlex.quote(agent_id)
+        script = (
+            f'if command -v inherits >/dev/null 2>&1; then inherits --check {q}; '
+            f'elif [ -x "$HOME/agents/toolkit/bin/inherits" ]; then '
+            f'"$HOME/agents/toolkit/bin/inherits" --check {q}; else exit 0; fi'
+        )
+        try:
+            r = target.run(script, timeout=timeout)
+        except (subprocess.SubprocessError, OSError):
+            return
+    else:
+        exe = shutil.which("inherits")
+        if not exe:
+            fallback = os.path.expanduser(INHERITS_FALLBACK)
+            exe = fallback if os.access(fallback, os.X_OK) else None
+        if not exe:
+            return
+        try:
+            r = subprocess.run([exe, "--check", agent_id], capture_output=True,
+                               text=True, timeout=timeout)
+        except (subprocess.SubprocessError, OSError):
+            return
+    if r.returncode == 1:
+        out = "\n".join(s.strip() for s in (r.stdout, r.stderr) if s and s.strip())
+        raise InheritsCheckFailed(
+            f"not starting {agent_id}: `inherits --check {agent_id}` found problems"
+            f" on {target.key}:\n{out}"
+        )
+
+
 def open_agent(
     name: str,
     path: str,
@@ -89,8 +140,12 @@ def open_agent(
     color: str | None = None,
     tab: bool = False,
     terminal: "_terminals.Terminal | None" = None,
+    check_id: str | None = None,
 ) -> None:
     """Open a new terminal window for the agent under the chosen harness.
+
+    `check_id` is the registry id to run `inherits --check` on first (see
+    inherits_check); None skips it.
 
     Opens a window in the chosen terminal (`terminal`, else the one resolved
     from `[settings] terminal`, default Ghostty), sets the title to
@@ -123,6 +178,8 @@ def open_agent(
             f"Install it or choose a different harness."
         )
     _validate(name, path)
+    if check_id:
+        inherits_check(check_id, target.key)
     if topic:
         _validate(topic, path)
         display_name = f"{name}: {topic}"
@@ -220,25 +277,36 @@ def attach_window(session: str, host: str = _hosts.DEFAULT_HOST,
 
 
 def open_all(agents: list[dict], delay_between: float = 1.0,
-             terminal: "_terminals.Terminal | None" = None) -> None:
+             terminal: "_terminals.Terminal | None" = None) -> list[str]:
     """Open a window for every agent, respecting each agent's saved
     harness AND resolved account config (both previously dropped here), with a
-    small delay so Ghostty settles between menu clicks."""
+    small delay so Ghostty settles between menu clicks.
+
+    An agent that fails `inherits --check` is not started, and the rest still
+    are: one stale agent must not keep the others down after a reboot. Returns
+    the failure messages."""
     from . import config  # local import avoids a module-load cycle
 
     term = terminal or _terminals.resolve()
+    failed: list[str] = []
 
     for agent in config._normalized(agents):
         harness_key = agent.get("harness", _harness.DEFAULT_HARNESS)
-        open_agent(
-            agent["name"],
-            agent["path"],
-            harness=harness_key,
-            host=agent.get("host", _hosts.DEFAULT_HOST),
-            session=agent.get("id"),
-            config_dir=config.resolve_config_dir(agent, harness=harness_key),
-            group=config.window_for(agent.get("group")),
-            color=_colors.workspace_color(agent),
-            terminal=term,
-        )
+        try:
+            open_agent(
+                agent["name"],
+                agent["path"],
+                harness=harness_key,
+                host=agent.get("host", _hosts.DEFAULT_HOST),
+                session=agent.get("id"),
+                config_dir=config.resolve_config_dir(agent, harness=harness_key),
+                group=config.window_for(agent.get("group")),
+                color=_colors.workspace_color(agent),
+                terminal=term,
+                check_id=config.inherits_id(agent),
+            )
+        except InheritsCheckFailed as e:
+            failed.append(str(e))
+            continue
         time.sleep(delay_between)
+    return failed

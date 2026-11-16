@@ -53,7 +53,7 @@ a-team <name>                   open that agent directly
 a-team tui                      live dashboard: running sessions + unread messages
 a-team all                      restore every persistent agent
 
-a-team new <name> [<path>]      register an agent (path falls back to clipboard)
+a-team new <name> [<path>] --role R   register an agent (path falls back to clipboard)
 a-team here [name]              register the current working directory
 a-team scratch [label]          one-off chat in ~/.a-team/scratch/<timestamp>[_<label>]/
 a-team rm <name>                unregister (folder is kept)
@@ -146,7 +146,7 @@ atx -l <agent>                  show where it lives, start nothing
 
 Parallel sessions are the normal way to run several builds or investigations at once: the first is `<id>`, the next `<id>-2`, each with its own name so they stay tellable apart on a phone.
 
-`a-team new EA` with no path uses your macOS clipboard. In Finder, Shift+Right-click a folder → Copy as Pathname, then run the command.
+`a-team new EA --role personal` with no path uses your macOS clipboard. In Finder, Shift+Right-click a folder → Copy as Pathname, then run the command.
 
 The picker also surfaces `+ Create new agent` and `- Manage` so you rarely touch a config file.
 
@@ -204,11 +204,11 @@ host = "server"
 ```
 
 ```bash
-a-team new "Build Agent" --host server    # creates the folder on that machine
+a-team new "Build Agent" --role sidekick --host server   # creates the folder on that machine
 a-team config default-host server         # new agents default there
 ```
 
-With a default host set, `a-team new "Build Agent"` needs no flags at all.
+With a default host set, `a-team new "Build Agent" --role sidekick` needs no other flag.
 
 Remote agents run inside `tmux new-session -A` on their host, so they survive the
 window closing, and attach over `mosh` (falling back to `ssh -t`). They also start
@@ -270,6 +270,24 @@ a-team set Preload-Builder --alias "Preload Builder" --purpose "Builds Preload's
 | `voice` | An ElevenLabs voice id for its replies; unset means `[settings] default_voice` |
 
 `a-team doctor` warns on a `readback` outside those five and a `purpose` over 12 words.
+
+### Role, customer, skills, model
+
+The toolkit's `inherits` builds each agent's instruction stack from four registry keys. `a-team new`
+writes all four; `--role` is required (a `--sibling` takes its parent's role, customer and model).
+
+| Key | Meaning |
+|---|---|
+| `role` | `sidekick`, `associate`, `backoffice` or `personal` (`--role`) |
+| `customer` | The atlas-crm deal slug it serves; `""` for none (`--customer`) |
+| `skills` | Skills beyond the role's own set; starts as `[]` |
+| `model` | The `--model` its session starts with; `"default"` passes none (`--model`) |
+
+Every command that rewrites the registry keeps them, and `a-team doctor` warns on an active agent
+with no role. Before starting an agent (not attaching to a running one), a-team runs
+`inherits --check <id>` on the agent's host when the tool is installed there (on PATH, or
+`~/agents/toolkit/bin/inherits`); exit 1 stops the start and prints its findings. Scratch sessions
+are not checked.
 
 ### Accounts
 

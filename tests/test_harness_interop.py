@@ -352,11 +352,13 @@ class LaunchCommand(unittest.TestCase):
         self.assertIn("cd /tmp/work", cmd)
 
     def test_claude_command_exports_config_dir(self):
-        cmd = spawn._build_command(
-            "Agent", "/tmp/work", harness.CLAUDE, "new", config_dir="/acct/dir"
-        )
+        # Without local tmux, so the command ends with the engine itself.
+        with mock.patch.dict(os.environ, {"A_TEAM_LOCAL_TMUX": "0"}):
+            cmd = spawn._build_command(
+                "Agent", "/tmp/work", harness.CLAUDE, "new", config_dir="/acct/dir"
+            )
         self.assertIn("export CLAUDE_CONFIG_DIR=/acct/dir", cmd)
-        self.assertTrue(cmd.strip().endswith("claude; }"))
+        self.assertTrue(cmd.strip().endswith("claude --remote-control Agent; }"))
 
     def test_missing_harness_reports_setup(self):
         # Force an unavailable executable and assert an actionable error.
@@ -615,12 +617,14 @@ class RemoteControlNaming(unittest.TestCase):
         self.assertIn("--remote-control", cmd)
         self.assertIn("Build Agent", cmd)
 
-    def test_local_spawn_does_not_force_remote_control(self):
+    def test_local_spawn_names_remote_control_too(self):
+        # Local agents get Remote Control as well: the phone is a real surface,
+        # and a session started without the flag can never be named (spawn.py).
         cmd = spawn._build_command(
             "Toolkit", "/tmp/proj", harness.CLAUDE, "continue",
             host=None, session="toolkit",
         )
-        self.assertNotIn("--remote-control", cmd)
+        self.assertIn("--remote-control Toolkit", cmd)
 
 
 

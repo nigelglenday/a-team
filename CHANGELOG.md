@@ -6,8 +6,24 @@ This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-16
+
+### Changed
+- **`a-team new` requires `--role`** (sidekick, associate, backoffice or personal) and writes the four
+  instruction-layer keys the toolkit's `inherits` reads: `role`, `customer` (`--customer`, else `""`),
+  `skills = []` and `model` (`--model`, else `"default"`). `--sibling` takes the parent's role,
+  customer and model unless given.
+- **Starting an agent runs `inherits --check <id>` first**, on the agent's host (over ssh for a
+  remote one), when the tool is on PATH or at `~/agents/toolkit/bin/inherits`. Exit 1 stops the
+  start and prints its findings; a missing tool or an unreachable host skips the check. Covers
+  `a-team open`, `a-team <name>`, the picker, the TUI and `a-team all` (which starts the rest and
+  exits 1). Attaching to a running session and scratch sessions are not checked.
+
 ### Fixed
 
+- `a-team migrate --apply` failed on any legacy entry (it wrote the in-memory defaults, including
+  None values TOML cannot hold); it now backfills only `id` and `harness`.
+- `a-team all` without `--no-splash` crashed on an undefined name.
 - `a-team open` no longer crashes for an agent whose color row has the accent `default` (the catch-all): cmux takes only a hex value, so such a workspace keeps its default color.
 - **Remote windows reattach on their own, and stop when you detach.** `reconnecting_attach` no
   longer reads mosh's exit status, which means nothing (1 after a clean detach). Given the session
@@ -17,6 +33,7 @@ This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0
   line and backs off from 3 s to 60 s. A dropped ssh link (exit 255) reconnects as before.
 
 ### Added
+- `a-team doctor` warns on an active agent with no `role`, or a role outside the four.
 - **Session colors from one table.** `a-team color <name>` prints an agent's tint and accent, read
   from the toolkit's session-colors table (the one tmux tints sessions from), so a-team keeps no
   copy. `resolve --json` and `ls --json` records carry `tint` and `accent`. A cmux workspace or desk
