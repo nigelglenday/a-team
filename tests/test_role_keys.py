@@ -346,3 +346,27 @@ class InheritsCheck(_Registry):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LiveSessionSkipsCheck(unittest.TestCase):
+    """A running agent is only reattached, so a failing check must not refuse it."""
+
+    def _open(self, live: list[str]) -> mock.Mock:
+        host = mock.Mock(is_remote=False, key="local")
+        term = mock.Mock()
+        with mock.patch.object(spawn._hosts, "get", return_value=host), \
+             mock.patch.object(spawn._harness, "get") as h, \
+             mock.patch.object(spawn, "_validate"), \
+             mock.patch.object(spawn, "_build_command", return_value="cmd"), \
+             mock.patch.object(spawn, "tmux_sessions", return_value=live), \
+             mock.patch.object(spawn, "inherits_check") as chk:
+            h.return_value.is_available.return_value = True
+            spawn.open_agent("Horse", "/tmp", session="horse", check_id="horse", terminal=term)
+        term.open.assert_called_once()
+        return chk
+
+    def test_live_session_is_not_checked(self) -> None:
+        self._open(["horse", "main"]).assert_not_called()
+
+    def test_new_start_is_checked(self) -> None:
+        self._open(["main"]).assert_called_once_with("horse", "local")

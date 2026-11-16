@@ -178,7 +178,9 @@ def open_agent(
             f"Install it or choose a different harness."
         )
     _validate(name, path)
-    if check_id:
+    # A live session only gets reattached (new-session -A), so the check would
+    # refuse a window onto an agent that is already running. Check new starts only.
+    if check_id and not (session and session in (tmux_sessions(target.key) or [])):
         inherits_check(check_id, target.key)
     if topic:
         _validate(topic, path)
