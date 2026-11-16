@@ -6,6 +6,13 @@ This file roughly follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-16
+
+### Fixed
+- **A running agent is never refused.** `inherits --check` now runs only when the agent's tmux session
+  does not exist yet. Opening a window onto a live session only reattaches it, so a failing check
+  no longer blocks that.
+
 ## [0.9.0] - 2026-11-16
 
 ### Changed
